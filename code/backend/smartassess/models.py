@@ -3,8 +3,13 @@ from django.db import models
 
 class User(AbstractUser):
     is_student = models.BooleanField(default=False)
+    email = models.EmailField(unique=True)  # Email is unique
     is_teacher = models.BooleanField(default=False)
+    username = models.CharField(max_length=150, unique=True, blank=True, null=True)  # Keep username for future use
 
+    USERNAME_FIELD = "email"  # Use email for authentication
+    REQUIRED_FIELDS = ["username"]  # Username is required during registration
+    
     groups = models.ManyToManyField(
         "auth.Group",
         related_name="smartassess_users",  # Avoid conflict

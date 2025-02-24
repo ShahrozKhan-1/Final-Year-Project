@@ -8,6 +8,7 @@ from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from django.contrib.auth import authenticate
 
 
 @api_view(["POST"])
@@ -32,31 +33,30 @@ def register(request):
 
 
 class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
-    @classmethod
-    def get_token(cls, user):
-        token = super().get_token(user)
-
-        # Add custom claims (role info)
-        token["is_student"] = user.is_student
-        token["is_teacher"] = user.is_teacher
-        return token
-
     def validate(self, attrs):
-        data = super().validate(attrs)
+        email = attrs.get("email")  # Get email from request
+        password = attrs.get("password")  
 
-        # Add user info to response
-        user = self.user
-        data.update({
+        if not email or not password:
+            raise serializers.ValidationError("Both email and password are required.")
+
+        user = authenticate(email=email, password=password)  # Authenticate using email
+
+        if not user:
+            raise serializers.ValidationError("Invalid email or password.")
+
+        refresh = self.get_token(user)
+        return {
+            "refresh": str(refresh),
+            "access": str(refresh.access_token),
             "user": {
                 "id": user.id,
-                "username": user.username,
                 "email": user.email,
+                "username": user.username,  # Return username for frontend use
                 "is_student": user.is_student,
                 "is_teacher": user.is_teacher,
             }
-        })
-        return data
-
+        }
 
 class MyTokenObtainPairView(TokenObtainPairView):
     serializer_class = MyTokenObtainPairSerializer
