@@ -1,50 +1,47 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
 const Login = () => {
-  const [formData, setFormData] = useState({ email: "", password: "" });  // Use email instead of username
-  const navigate = useNavigate();
+    const [email, setEmail] = useState("");
+    const [password, setPassword] = useState("");
+    const [error, setError] = useState("");
+    const navigate = useNavigate();
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const response = await axios.post("http://127.0.0.1:8000/api/login/", formData);
-      console.log("Login successful:", response.data);
-
-      const { access, refresh, user } = response.data;
-      localStorage.setItem("accessToken", access);
-      localStorage.setItem("refreshToken", refresh);
-      localStorage.setItem("userRole", user.is_student ? "student" : "teacher");
-      localStorage.setItem("username", user.username);  // Store username for frontend use
-
-      if (user.is_student) {
-        navigate("/student-dashboard");
-      } else if (user.is_teacher) {
-        navigate("/teacher-dashboard");
-      } else {
-        navigate("/");
+    const handleLogin = async (e) => {
+      e.preventDefault();
+      try {
+          const response = await axios.post("http://127.0.0.1:8000/login/", { email, password });
+          console.log("Login Successful:", response.data);
+  
+          localStorage.setItem("token", response.data.access);
+          localStorage.setItem("user", JSON.stringify(response.data.user));
+  
+          if (response.data.user.role === "student") {
+              navigate("/student-dashboard");
+          } else if (response.data.user.role === "teacher") {
+              navigate("/teacher-dashboard");
+          } else {
+              navigate("/login");
+          }
+      } catch (err) {
+          console.error("Login Error:", err.response?.data);
+          setError(err.response?.data?.error || "Invalid credentials.");
       }
-    } catch (error) {
-      console.error("Login failed:", error.response?.data);
-      alert(error.response?.data?.detail || "Invalid credentials. Please try again.");
-    }
   };
+  
 
-  return (
-    <div>
-      <h2>Login</h2>
-      <form onSubmit={handleSubmit}>
-        <input type="email" name="email" placeholder="Email" onChange={handleChange} required />
-        <input type="password" name="password" placeholder="Password" onChange={handleChange} required />
-        <button type="submit">Login</button>
-      </form>
-    </div>
-  );
+    return (
+        <div>
+            <h2>Login</h2>
+            <form onSubmit={handleLogin}>
+                <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                <button type="submit">Login</button>
+            </form>
+            {error && <p style={{ color: "red" }}>{error}</p>}
+        </div>
+    );
 };
 
 export default Login;

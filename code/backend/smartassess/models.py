@@ -2,24 +2,16 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 
 class User(AbstractUser):
-    is_student = models.BooleanField(default=False)
-    email = models.EmailField(unique=True)  # Email is unique
-    is_teacher = models.BooleanField(default=False)
-    username = models.CharField(max_length=150, unique=True, blank=True, null=True)  # Keep username for future use
+    ROLE_CHOICES = [
+        ('student', 'Student'),
+        ('teacher', 'Teacher'),
+        ('admin', 'Admin'),
+    ]
 
-    USERNAME_FIELD = "email"  # Use email for authentication
-    REQUIRED_FIELDS = ["username"]  # Username is required during registration
+    email = models.EmailField(unique=True)
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='student')
+    is_verified = models.BooleanField(default=False)
+
     
-    groups = models.ManyToManyField(
-        "auth.Group",
-        related_name="smartassess_users",  # Avoid conflict
-        blank=True,
-    )
-    user_permissions = models.ManyToManyField(
-        "auth.Permission",
-        related_name="smartassess_users_permissions",  # Avoid conflict
-        blank=True,
-    )
-
     def __str__(self):
         return self.username

@@ -1,71 +1,51 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
 const Register = () => {
-  const [formData, setFormData] = useState({
-    username: "",
-    email: "", // Added email field
-    password: "",
-    confirmPassword: "",
-    role: "student", // Default role selection
-  });
+    const [email, setEmail] = useState("");
+    const [username, setUsername] = useState("");
+    const [password, setPassword] = useState("");
+    const [role, setRole] = useState("student");
+    const [message, setMessage] = useState("");
+    const navigate = useNavigate();
 
-  const navigate = useNavigate();
-
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const handleRegister = async (e) => {
+      e.preventDefault();
+      try {
+          const response = await axios.post("http://127.0.0.1:8000/register/", {
+              username,
+              email,
+              password,
+              role,
+          });
+  
+          console.log("Success:", response.data);
+          setMessage("Registration successful! Now login.");
+          navigate("/login");
+      } catch (err) {
+          console.error("Error:", err.response?.data);
+          setMessage(err.response?.data?.error || "Registration failed. Try again.");
+      }
   };
+  
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (formData.password !== formData.confirmPassword) {
-      alert("Passwords do not match!");
-      return;
-    }
-
-    try {
-      const response = await axios.post("http://127.0.0.1:8000/api/register/", {
-        username: formData.username,
-        email: formData.email, // Send email
-        password: formData.password,
-        is_student: formData.role === "student",
-        is_teacher: formData.role === "teacher",
-      });
-
-      alert("Registration successful! You can now log in.");
-      navigate("/login"); // Redirect to login page
-    } catch (error) {
-      console.error("Registration failed:", error.response?.data);
-      alert("Registration failed! Please check your details and try again.");
-    }
-    console.log("Sending data:", {
-      username: formData.username,
-      password: formData.password,
-      is_student: formData.role === "student",
-      is_teacher: formData.role === "teacher",
-    });
-  };
-
-  return (
-    <div>
-      <h2>Register</h2>
-      <form onSubmit={handleSubmit}>
-        <input type="text" name="username" placeholder="Username" onChange={handleChange} required />
-        <input type="email" name="email" placeholder="Email" onChange={handleChange} required />
-        <input type="password" name="password" placeholder="Password" onChange={handleChange} required />
-        <input type="password" name="confirmPassword" placeholder="Confirm Password" onChange={handleChange} required />
-
-        {/* Role Selection */}
-        <select name="role" value={formData.role} onChange={handleChange}>
-          <option value="student">Student</option>
-          <option value="teacher">Teacher</option>
-        </select>
-
-        <button type="submit">Register</button>
-      </form>
-    </div>
-  );
+    return (
+        <div>
+            <h2>Register</h2>
+            <form onSubmit={handleRegister}>
+                <input type="username" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} required />
+                <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                <select value={role} onChange={(e) => setRole(e.target.value)}>
+                    <option value="student">Student</option>
+                    <option value="teacher">Teacher</option>
+                </select>
+                <button type="submit">Register</button>
+            </form>
+            {message && <p>{message}</p>}
+        </div>
+    );
 };
 
 export default Register;
