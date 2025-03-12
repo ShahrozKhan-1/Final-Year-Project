@@ -19,5 +19,11 @@ class RegisterSerializer(serializers.ModelSerializer):
             user.is_verified = False
             user.save()
         return user
+    
+class SessionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Session
+        fields = '__all__'
+        read_only_fields = ('teacher', 'created_at', 'enrolled_students')
         
         

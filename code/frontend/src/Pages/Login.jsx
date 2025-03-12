@@ -14,14 +14,23 @@ const Login = () => {
           const response = await axios.post("http://127.0.0.1:8000/login/", { email, password });
           console.log("Login Successful:", response.data);
   
-          localStorage.setItem("token", response.data.access);
+        //   localStorage.setItem("token", response.data.access);
           localStorage.setItem("user", JSON.stringify(response.data.user));
+          localStorage.setItem("access_token", response.data.access);  // ✅ Store access token
+          localStorage.setItem("refresh_token", response.data.refresh);
+        //   localStorage.setItem("user", JSON.stringify(response.data.user));
+        console.log(response.data.access)
   
           if (response.data.user.role === "student") {
               navigate("/student-dashboard");
-          } else if (response.data.user.role === "teacher") {
+          } 
+          else if (response.data.user.role === "teacher") {
               navigate("/teacher-dashboard");
-          } else {
+          }
+          else if(response.data.user.role === "admin"){
+            navigate("/admin-panel")
+          } 
+          else {
               navigate("/login");
           }
       } catch (err) {

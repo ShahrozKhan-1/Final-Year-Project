@@ -1,9 +1,10 @@
 import React from 'react'
+import EnrollSession from '../Components/EnrollSession'
 
 function StudentPage() {
   return (
     <div>
-      student page
+      <EnrollSession />
     </div>
   )
 }
