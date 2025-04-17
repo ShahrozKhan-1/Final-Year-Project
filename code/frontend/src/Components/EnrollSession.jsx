@@ -21,23 +21,42 @@ const EnrollSession = () => {
     fetchSessions();
   }, []);
 
-  const enrollSession = async (sessionId) => {
+  // const enrollSession = async (sessionId) => {
+  //   const token = localStorage.getItem("access_token");
+  //   try {
+  //     const response = await axios.patch(
+  //       `http://127.0.0.1:8000/sessions/enroll/${sessionId}/`,
+  //       {},
+  //       {
+  //         headers: { Authorization: `Bearer ${token}` },
+  //       }
+  //     );
+  //     setMessage(response.data.message);
+  //     fetchSessions(); // Optionally refresh the sessions list
+  //   } catch (error) {
+  //     setMessage("Error enrolling in session.");
+  //     console.error(error.response?.data || error);
+  //   }
+  // };
+
+  const requestEnrollment = async (sessionId) => {
     const token = localStorage.getItem("access_token");
+
     try {
-      const response = await axios.patch(
-        `http://127.0.0.1:8000/sessions/enroll/${sessionId}/`,
-        {},
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-      setMessage(response.data.message);
-      fetchSessions(); // Optionally refresh the sessions list
+        const response = await axios.patch(
+            `http://127.0.0.1:8000/sessions/enroll-request/${sessionId}/`, 
+            {}, 
+            {
+                headers: { Authorization: `Bearer ${token}` },
+            }
+        );
+        setMessage(response.data.message);
     } catch (error) {
-      setMessage("Error enrolling in session.");
-      console.error(error.response?.data || error);
+        setMessage("Error requesting enrollment.");
+        console.error(error.response?.data || error);
     }
-  };
+};
+
 
   return (
     <div>
@@ -50,7 +69,7 @@ const EnrollSession = () => {
             <p>{session.description}</p>
             <p>Starts: {session.start_time}</p>
             <p>Ends: {session.end_time}</p>
-            <button onClick={() => enrollSession(session.id)}>Enroll</button>
+            <button onClick={() => requestEnrollment(session.id)}>Enroll</button>
           </li>
         ))}
       </ul>

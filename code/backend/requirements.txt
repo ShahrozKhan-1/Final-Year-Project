@@ -3,3 +3,8 @@ djangorestframework
 djangorestframework-simplejwt
 psycopg2
 django-cors-headers
+requests
+pymupdf
+python-docx
+openai
+python-dotenv

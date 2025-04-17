@@ -8,6 +8,8 @@ import TeacherPage from "./Pages/TeacherPage";
 import AdminPage from "./Pages/AdminPage";
 import CreateSession from "./Components/CreateSession";
 import EnrollSession from "./Components/EnrollSession";
+import TeacherRequests from "./Components/TeacherRequests";
+import CreateTest from "./Components/CreateTest";
 import ProtectedRoute from "./Components/ProtectedRoutes";
 
 function App() {
@@ -23,6 +25,8 @@ function App() {
         <Route path="/admin-panel" element={<AdminPage />} />
         <Route path="/teacher/create-session" element={<CreateSession />} />
         <Route path="/student/enroll-session" element={<EnrollSession />} />
+        <Route path="/teacher-request" element={<TeacherRequests />} />
+        <Route path="/create-test/:sessionId" element={<CreateTest />} />
         <Route path="/" element={<Login />} />
       </Routes>
     </Router>

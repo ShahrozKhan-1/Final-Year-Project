@@ -1,6 +1,7 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 
 class User(AbstractUser):
     ROLE_CHOICES = [
@@ -16,7 +17,8 @@ class User(AbstractUser):
     
     def __str__(self):
         return self.username
-    
+
+
 class Session(models.Model):
     teacher = models.ForeignKey(
         settings.AUTH_USER_MODEL, 
@@ -32,7 +34,65 @@ class Session(models.Model):
         blank=True, 
         related_name="enrolled_sessions"
     )
+    pending_students = models.ManyToManyField(
+        settings.AUTH_USER_MODEL, 
+        blank=True,
+        related_name="pending_sessions"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.session_name
+
+
+# models.py
+class Test(models.Model):
+    session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name='tests', default=1)
+    teacher = models.ForeignKey(User, on_delete=models.CASCADE)
+    title = models.CharField(max_length=255)
+    time_limit_minutes = models.PositiveIntegerField(default=30)
+    description = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.title
+    
+class Question(models.Model):
+    QUESTION_TYPES = [
+        ('MCQ', 'Multiple Choice'),
+        ('QNA', 'Written Answer'),
+    ]
+    
+    test = models.ForeignKey(Test, on_delete=models.CASCADE)
+    teacher = models.ForeignKey(User, on_delete=models.CASCADE, default=1)
+    question_type = models.CharField(max_length=3, choices=QUESTION_TYPES, default='MCQ')
+    content = models.TextField(default='Hi')
+    
+    # MCQ-specific fields (nullable)
+    option_a = models.CharField(max_length=255, blank=True, null=True)
+    option_b = models.CharField(max_length=255, blank=True, null=True)
+    option_c = models.CharField(max_length=255, blank=True, null=True)
+    option_d = models.CharField(max_length=255, blank=True, null=True)
+    correct_option = models.CharField(
+        max_length=1,
+        choices=[('A', 'a'), ('B', 'b'), ('C', 'c'), ('D', 'd')],
+        blank=True,
+        null=True
+    )
+    
+    # Common fields
+    difficulty = models.CharField(max_length=10, default='Medium')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.get_question_type_display()}: {self.content[:50]}..."
+
+    
+# models.py
+class TestAttempt(models.Model):
+    student = models.ForeignKey(User, on_delete=models.CASCADE)
+    test = models.ForeignKey(Test, on_delete=models.CASCADE)
+    start_time = models.DateTimeField()  # When the student started
+    end_time = models.DateTimeField(null=True, blank=True)  # When they submitted
+    is_submitted = models.BooleanField(default=False)
+    # ... (add more fields like score if needed) ...
