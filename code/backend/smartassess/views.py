@@ -329,7 +329,7 @@ class GenerateQuestionsView(APIView):
     def query_deepseek(self, prompt, difficulty, question_type, count):
         """Call DeepSeek API to generate questions"""
         url = "https://openrouter.ai/api/v1/chat/completions"
-        api_key = "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"  # Replace with your actual key
+        api_key = "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"  # Replace with your actual key
 
         instructions = {
             "mcq": (
