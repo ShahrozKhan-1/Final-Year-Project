@@ -16,4 +16,5 @@ urlpatterns = [
     path('generate-questions/', GenerateQuestionsView.as_view(), name='generate-questions'),
     path('api/save-quiz/', SaveQuizView.as_view(), name='save-quiz'),
     path('api/tests/<test_id>/set-time-limit/', SetTimeLimitView.as_view(), name='set-time-limit'),
+    path('sessions/enrolled/', EnrolledSessionsView.as_view(), name='sessions-enrolled'),
 ]

@@ -329,7 +329,7 @@ class GenerateQuestionsView(APIView):
     def query_deepseek(self, prompt, difficulty, question_type, count):
         """Call DeepSeek API to generate questions"""
         url = "https://openrouter.ai/api/v1/chat/completions"
-        api_key = "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"  # Replace with your actual key
+        api_key = "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"  # Replace with your actual key
 
         instructions = {
             "mcq": (
@@ -521,3 +521,12 @@ class SetTimeLimitView(APIView):
         test.time_limit_minutes = time_limit
         test.save()
         return Response({"message": f"Time limit set to {time_limit} minutes"})
+    
+class EnrolledSessionsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Grab all Session objects where the current user is enrolled
+        sessions = request.user.enrolled_sessions.all()
+        serializer = SessionSerializer(sessions, many=True)
+        return Response(serializer.data, status=200)
