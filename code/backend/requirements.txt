@@ -8,3 +8,4 @@ pymupdf
 python-docx
 openai
 python-dotenv
+aiohttp

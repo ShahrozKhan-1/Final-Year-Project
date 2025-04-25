@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useParams } from 'react-router-dom';
 
@@ -152,7 +152,7 @@ function CreateTest() {
         option_a: q.option_a || '',
         option_b: q.option_b || '',
         option_c: q.option_c || '',
-        option_d: q.option_d || '',
+        option_d: q.option_d || '', 
         correct_option: q.correct_option || 'A'
       }));
   
@@ -237,6 +237,12 @@ function CreateTest() {
     });
     setQuestions(updatedQuestions);
   };
+
+  useEffect(() => {
+    setQuestions([]);
+    setTestId(null); // Reset the test ID to ensure fresh test
+  }, [testTitle]);
+
 
   return (
     <div style={{ maxWidth: '800px', margin: '0 auto', padding: '20px' }}>

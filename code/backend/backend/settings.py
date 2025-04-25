@@ -15,6 +15,7 @@ from pathlib import Path
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# DEEPSEEK_API_KEY = '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'
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/

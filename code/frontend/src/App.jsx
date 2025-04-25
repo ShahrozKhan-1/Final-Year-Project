@@ -10,7 +10,9 @@ import CreateSession from "./Components/CreateSession";
 import EnrollSession from "./Components/EnrollSession";
 import TeacherRequests from "./Components/TeacherRequests";
 import CreateTest from "./Components/CreateTest";
+import AttemptTest from "./Pages/AttemptTest";
 import ProtectedRoute from "./Components/ProtectedRoutes";
+import PracticeSetup from "./Components/PracticeSetup";
 
 function App() {
 
@@ -27,6 +29,8 @@ function App() {
         <Route path="/student/enroll-session" element={<EnrollSession />} />
         <Route path="/teacher-request" element={<TeacherRequests />} />
         <Route path="/create-test/:sessionId" element={<CreateTest />} />
+        <Route path="/student/practice" element={<PracticeSetup />} />
+        <Route path="/student/attempt-test/:testId" element={<AttemptTest />} />
         <Route path="/" element={<Login />} />
       </Routes>
     </Router>

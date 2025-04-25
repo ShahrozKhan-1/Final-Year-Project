@@ -23,6 +23,11 @@ import requests
 import json
 import random
 from openai import OpenAI
+from django.conf import settings
+import asyncio
+import aiohttp
+import traceback
+
 
 
 User = get_user_model()
@@ -317,19 +322,25 @@ class GenerateQuestionsView(APIView):
     def generate_qnas(self, prompt, difficulty, count):
         """Generate open-ended questions"""
         generated = self.query_deepseek(prompt, difficulty, "qna", count)
+
         if not generated:
-            # Fallback if API fails
             return [{
                 'question_type': 'QNA',
                 'content': f'Explain {prompt[:30]}... (Q{i+1})',
                 'difficulty': difficulty
             } for i in range(count)]
+
+        # 🔥 FIX: Add `question_type` and `difficulty` to each generated QNA
+        for q in generated:
+            q['question_type'] = 'QNA'
+        q['difficulty'] = difficulty
+
         return generated
 
     def query_deepseek(self, prompt, difficulty, question_type, count):
         """Call DeepSeek API to generate questions"""
         url = "https://openrouter.ai/api/v1/chat/completions"
-        api_key = "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"  # Replace with your actual key
+        api_key = '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' # Replace with your actual key
 
         instructions = {
             "mcq": (
@@ -443,57 +454,67 @@ class SaveQuizView(APIView):
         try:
             questions = request.data.get("questions", [])
             test_id = request.data.get("test_id")
-            
+
             if not questions:
-                return Response(
-                    {"error": "No questions provided"}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
+                return Response({"error": "No questions provided"}, status=status.HTTP_400_BAD_REQUEST)
+
             if not test_id:
-                return Response(
-                    {"error": "Test ID is required"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                return Response({"error": "Test ID is required"}, status=status.HTTP_400_BAD_REQUEST)
 
             updated_count = 0
             created_count = 0
-            
+
             for item in questions:
                 try:
+                    question_type = item.get('question_type', 'MCQ').upper()
+                    if question_type not in ['MCQ', 'QNA']:
+                        continue  # skip invalid type
+
+                    base_data = {
+                        'content': item.get('content', ''),
+                        'question_type': question_type,
+                        'difficulty': item.get('difficulty', 'Medium'),
+                    }
+
+                    # Only add MCQ fields if type is MCQ
+                    if question_type == 'MCQ':
+                        base_data.update({
+                            'option_a': item.get('option_a'),
+                            'option_b': item.get('option_b'),
+                            'option_c': item.get('option_c'),
+                            'option_d': item.get('option_d'),
+                            'correct_option': item.get('correct_option'),
+                        })
+
                     if item.get('id'):
                         question = Question.objects.filter(
-                            id=item.get('id'),
+                            id=item['id'],
                             test_id=test_id,
                             teacher=request.user
                         ).first()
-                        
+
                         if question:
-                            question.content = item.get('content', '')
-                            question.option_a = item.get('option_a', '')
-                            question.option_b = item.get('option_b', '')
-                            question.option_c = item.get('option_c', '')
-                            question.option_d = item.get('option_d', '')
-                            question.correct_option = item.get('correct_option', 'A')
+                            for field, value in base_data.items():
+                                setattr(question, field, value)
                             question.save()
                             updated_count += 1
                         else:
                             Question.objects.create(
                                 test_id=test_id,
                                 teacher=request.user,
-                                **{k: v for k, v in item.items() if k != 'id'}
+                                **base_data
                             )
                             created_count += 1
                     else:
                         Question.objects.create(
                             test_id=test_id,
                             teacher=request.user,
-                            **item
+                            **base_data
                         )
                         created_count += 1
-                        
-                except Exception:
-                    continue
+
+                except Exception as e:
+                    continue  # optionally log `e`
 
             return Response({
                 "message": f"Successfully processed {updated_count + created_count} questions",
@@ -530,3 +551,433 @@ class EnrolledSessionsView(APIView):
         sessions = request.user.enrolled_sessions.all()
         serializer = SessionSerializer(sessions, many=True)
         return Response(serializer.data, status=200)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def enrolled_sessions_with_tests(request):
+    student = request.user
+    sessions = Session.objects.filter(enrolled_students=student).distinct()
+    serializer = SessionWithTestsSerializer(sessions, many=True)
+    return Response(serializer.data)
+
+class SessionTestsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, session_id):
+        try:
+            session = Session.objects.get(id=session_id)
+
+            # Check if student is enrolled in the session
+            if request.user not in session.enrolled_students.all():
+                return Response({"detail": "You are not enrolled in this session."}, status=status.HTTP_403_FORBIDDEN)
+
+            tests = Test.objects.filter(session=session)
+            serializer = TestSerializer(tests, many=True)
+            return Response(serializer.data)
+
+        except Session.DoesNotExist:
+            return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
+        
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_test_for_attempt(request, test_id):
+    user = request.user
+    try:
+        test = get_object_or_404(Test, id=test_id)
+
+        # Ensure user is a student and is enrolled in the test's session
+        if user.role != 'student':
+            return Response({"error": "Only students can attempt tests."}, status=status.HTTP_403_FORBIDDEN)
+
+        if user not in test.session.enrolled_students.all():
+            return Response({"error": "You are not enrolled in this session."}, status=status.HTTP_403_FORBIDDEN)
+
+        # Create a TestAttempt if one doesn't already exist
+        try:
+            # Check if there is already an active TestAttempt
+            TestAttempt.objects.get(test=test, student=user, is_submitted=False)
+        except TestAttempt.DoesNotExist:
+            # If no active attempt exists, create one
+            TestAttempt.objects.create(
+                student=user,
+                test=test,
+                start_time=timezone.now(),
+                is_submitted=False
+            )
+
+        # Serialize the test and its questions
+        serializer = TestSerializer(test)
+        return Response(serializer.data)
+
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    
+    
+class SubmitTestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, test_id):
+        user = request.user
+        answers = request.data.get('answers', {})
+
+        try:
+            test = Test.objects.get(id=test_id)
+        except Test.DoesNotExist:
+            return Response({'error': 'Test not found'}, status=404)
+
+        # Ensure an active test attempt exists
+        try:
+            attempt = TestAttempt.objects.get(test=test, student=user, is_submitted=False)
+        except TestAttempt.DoesNotExist:
+            return Response({'error': 'No active test attempt found.'}, status=400)
+
+        for question_id, answer_text in answers.items():
+            try:
+                question = Question.objects.get(id=question_id, test=test)
+            except Question.DoesNotExist:
+                continue  # skip invalid questions
+
+            StudentAnswer.objects.create(
+                attempt=attempt,
+                question=question,
+                answer_text=answer_text
+            )
+
+        attempt.is_submitted = True
+        attempt.end_time = timezone.now()
+        attempt.save()
+
+        return Response({'message': 'Test submitted successfully'})
+
+
+class PracticeGenerateQuestionsView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        try:
+            prompt_text = request.data.get('prompt_text', '')
+            difficulty = request.data.get('difficulty', 'medium')
+            file = request.FILES.get('file', None)
+            mcq_count = int(request.data.get('mcq_count', 0))
+            qna_count = int(request.data.get('qna_count', 0))
+
+            if mcq_count + qna_count == 0:
+                return Response(
+                    {"error": "At least one question type must be requested"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            if file:
+                file_name = default_storage.save(file.name, file)
+                file_path = default_storage.path(file_name)
+                prompt_text = self.extract_text_from_file(file_path, file.name)
+
+            generated_questions = []
+
+            if mcq_count > 0:
+                generated_questions.extend(self.generate_mcqs(prompt_text, difficulty, mcq_count))
+            if qna_count > 0:
+                generated_questions.extend(self.generate_qnas(prompt_text, difficulty, qna_count))
+
+            return Response({"questions": generated_questions})
+        
+        except Exception as e:
+            print(f"[PracticeGeneration Error]: {str(e)}")
+            return Response({"error": str(e)}, status=500)
+
+    def generate_mcqs(self, prompt, difficulty, count):
+        questions = self.query_deepseek(prompt, difficulty, "mcq", count)
+        return questions if questions else [{
+            'question_type': 'MCQ',
+            'content': f'Demo MCQ {i+1}',
+            'option_a': 'Option A',
+            'option_b': 'Option B',
+            'option_c': 'Option C',
+            'option_d': 'Option D',
+            'correct_option': 'A',
+            'difficulty': difficulty
+        } for i in range(count)]
+
+    def generate_qnas(self, prompt, difficulty, count):
+        questions = self.query_deepseek(prompt, difficulty, "qna", count)
+        for q in questions:
+            q['question_type'] = 'QNA'
+            q['difficulty'] = difficulty
+        return questions
+
+    def query_deepseek(self, prompt, difficulty, question_type, count):
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        api_key = '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'
+
+        instruction = {
+            "mcq": (
+                f"Generate {count} {difficulty} MCQs with 'content', 'option_a' to 'option_d', and 'correct_option'. "
+                "Respond strictly as JSON: {\"questions\": [...]}"
+            ),
+            "qna": (
+                f"Generate {count} {difficulty} open-ended questions. Respond as: "
+                "{\"questions\": [{\"content\": \"...\"}]}"
+            )
+        }
+
+        try:
+            response = requests.post(
+                url,
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": "deepseek/deepseek-chat:free",
+                    "messages": [{
+                        "role": "user",
+                        "content": f"{instruction[question_type]}\nBase it on:\n\"{prompt}\"\nReturn valid JSON."
+                    }],
+                    "response_format": {"type": "json_object"}
+                }
+            )
+            response.raise_for_status()
+            print(instruction)
+            content = response.json()['choices'][0]['message']['content']
+            print(f"Raw API Response: {content}")  # Debugging
+            print(prompt)
+            if content.startswith("```json"):
+                content = content.split("```json")[1].split("```")[0].strip()
+            return json.loads(content).get("questions", [])
+
+        except Exception as e:
+            print(f"[DeepSeek API Error]: {str(e)}")
+            return []
+
+    def extract_text_from_file(self, file_path, filename):
+        if filename.endswith(".pdf"):
+            text = ""
+            with fitz.open(file_path) as doc:
+                for page in doc:
+                    text += page.get_text()
+            return text
+        elif filename.endswith(".docx"):
+            doc = docx.Document(file_path)
+            return "\n".join([para.text for para in doc.paragraphs])
+        elif filename.endswith(".txt"):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        else:
+            raise ValueError("Unsupported file format")
+
+
+class PracticeCheckView(APIView):
+    def post(self, request, *args, **kwargs):
+        questions = request.data.get('questions', [])
+        results = []
+        mcq_score = 0
+        total_mcq = 0
+
+        # First pass: Process all questions and detect topics
+        for question in questions:
+            result = self.process_question(question)
+            if result['question_type'] == 'MCQ':
+                total_mcq += 1
+                mcq_score += result['marks']
+            results.append(result)
+
+        # Enhanced topic analysis with concept mapping
+        overall_feedback, suggested_topics = self.enhanced_topic_analysis(results)
+
+        return Response({
+            "score_breakdown": {
+                "mcq": {
+                    "correct": mcq_score,
+                    "total": total_mcq,
+                    "percentage": round((mcq_score / total_mcq * 100) if total_mcq > 0 else 0, 2)
+                }
+            },
+            "results": results,
+            "overall_feedback": overall_feedback,
+            "suggested_topics": suggested_topics,
+        })
+
+    def process_question(self, question):
+        """Process individual question with improved topic detection"""
+        question_type = question.get('question_type', 'MCQ').upper()
+        student_answer = str(question.get('student_answer', '')).strip().lower()
+        correct_option = question.get('correct_option', '').lower()
+        
+        options = {
+            'a': str(question.get('option_a', '')).strip().lower(),
+            'b': str(question.get('option_b', '')).strip().lower(),
+            'c': str(question.get('option_c', '')).strip().lower(),
+            'd': str(question.get('option_d', '')).strip().lower()
+        }
+        
+        correct_answer = options.get(correct_option, '')
+        question_content = question.get('content', '')
+        
+        # Enhanced topic detection
+        topic = question.get('topic') or self.detect_question_topic(question_content, correct_answer)
+        
+        result = {
+            'question': question_content,
+            'topic': topic,
+            'question_type': question_type,
+            'student_answer': student_answer,
+            'correct_answer': correct_answer,
+            'options': options
+        }
+
+        if question_type == 'MCQ':
+            is_correct = student_answer == correct_answer
+            result.update({
+                'is_correct': is_correct,
+                'marks': 1 if is_correct else 0,
+                'max_marks': 1,
+                'feedback': "Correct" if is_correct else f"Incorrect. Correct answer: {correct_answer}"
+            })
+
+        return result
+
+    def detect_question_topic(self, question_content, correct_answer):
+        """Enhanced topic detection with concept mapping"""
+        content_lower = question_content.lower()
+        answer_lower = correct_answer.lower()
+        
+        # Topic mapping with prioritized checks
+        topic_mapping = [
+            # Data Structures
+            (['fifo', 'lifo', 'stack', 'queue', 'heap', 'tree', 'graph', 'linked list', 'hash'], 'Data Structures'),
+            
+            # Algorithms
+            (['sort', 'search', 'path', 'dijkstra', 'quick sort', 'merge sort', 'binary search', 'algorithm'], 'Algorithms'),
+            
+            # Time Complexity
+            (['o(', 'complexity', 'big-o', 'runtime', 'time complexity'], 'Time Complexity'),
+            
+            # Computer Basics
+            (['cpu', 'ram', 'hardware', 'operating system', 'computer'], 'Computer Basics'),
+            
+            # Programming
+            (['python', 'java', 'function', 'loop', 'variable', 'program'], 'Programming'),
+            
+            # Specific concepts from answers
+            (['dijkstra', 'bellman-ford'], 'Graph Algorithms'),
+            (['quick sort', 'merge sort', 'bubble sort'], 'Sorting Algorithms'),
+            (['binary search', 'linear search'], 'Search Algorithms')
+        ]
+        
+        # Check for specific concepts first
+        for keywords, topic in topic_mapping:
+            if any(keyword in content_lower or keyword in answer_lower for keyword in keywords):
+                return topic
+        
+        return 'General CS Concepts'
+
+    def enhanced_topic_analysis(self, results):
+        """Improved analysis with proper concept categorization"""
+        if not results:
+            return "No results to analyze", []
+        
+        # Organize by topic with concept tracking
+        topic_stats = {}
+        for result in results:
+            topic = result.get('topic', 'General CS Concepts')
+            if topic not in topic_stats:
+                topic_stats[topic] = {
+                    'correct': 0,
+                    'total': 0,
+                    'incorrect_concepts': set(),
+                    'questions': []
+                }
+            
+            topic_stats[topic]['total'] += 1
+            if result.get('is_correct', False):
+                topic_stats[topic]['correct'] += 1
+            else:
+                # Track specific incorrect concepts properly
+                if result['correct_answer']:
+                    self._track_concept(topic_stats[topic], result['correct_answer'])
+            topic_stats[topic]['questions'].append(result)
+
+        # Identify weak topics (accuracy < 65%) with minimum 2 questions
+        weak_topics = [
+            (topic, stats) for topic, stats in topic_stats.items()
+            if stats['total'] >= 2 and (stats['correct'] / stats['total']) < 0.65
+        ]
+
+        # Sort by worst performance first
+        weak_topics.sort(key=lambda x: x[1]['correct'] / x[1]['total'])
+
+        # Generate detailed feedback
+        feedback_lines = []
+        suggested_topics = []
+        
+        for topic, stats in weak_topics[:3]:  # Limit to top 3 weakest
+            accuracy = (stats['correct'] / stats['total']) * 100
+            
+            # Get properly categorized concepts
+            concept_info = self._categorize_missed_concepts(topic, stats['incorrect_concepts'])
+            
+            feedback_lines.append(
+                f"\n🚩 Weak Area: {topic} ({round(accuracy, 1)}% accuracy)\n"
+                f"🔍 Problem areas: {concept_info['description']}\n"
+                f"💡 Suggested focus: {concept_info['suggestion']}\n"
+                f"📚 Resources: {concept_info['resources']}\n"
+            )
+            suggested_topics.append(topic)
+
+        if not feedback_lines:
+            feedback = "✅ Good overall performance! No major weak areas identified."
+            suggestions = []
+        else:
+            feedback = "📊 Performance Analysis:" + "\n".join(feedback_lines)
+            suggestions = suggested_topics
+
+        return feedback, suggestions
+
+    def _track_concept(self, topic_stats, correct_answer):
+        """Properly track concepts by cleaning and categorizing them"""
+        # Clean the answer
+        cleaned = correct_answer.lower().strip()
+        
+        # Categorize different types of answers
+        if cleaned.startswith('o(') or cleaned in ['o(1)', 'o(n)', 'o(n^2)', 'o(log n)']:
+            topic_stats['incorrect_concepts'].add('Time Complexity Analysis')
+        elif any(word in cleaned for word in ['sort', 'search', 'algorithm']):
+            topic_stats['incorrect_concepts'].add(cleaned.split(' ')[0].title())
+        elif cleaned.replace('-', ' ').replace('_', ' ') in ['queue', 'stack', 'heap', 'tree']:
+            topic_stats['incorrect_concepts'].add(cleaned.title())
+        else:
+            topic_stats['incorrect_concepts'].add(cleaned)
+
+    def _categorize_missed_concepts(self, topic, concepts):
+        """Generate meaningful feedback based on concept types"""
+        # Default values
+        description = "Several key concepts"
+        suggestion = f"Review core {topic} concepts"
+        resources = "Standard course materials"
+        
+        if topic == 'Algorithms':
+            algos = [c for c in concepts if not c.startswith('Time Complexity')]
+            time_complexity = [c for c in concepts if c.startswith('Time Complexity')]
+            
+            if algos:
+                description = f"Algorithms: {', '.join(algos[:3])}"
+                suggestion = f"Practice implementing {algos[0]} with step-by-step tracing"
+                resources = "GeeksforGeeks algorithm visualizations"
+            if time_complexity:
+                description += ("; " if algos else "") + "Complexity analysis"
+                suggestion += (" and " if algos else "") + "study time complexity calculations"
+                
+        elif topic == 'Data Structures':
+            ds = [c for c in concepts if c.lower() in ['queue', 'stack', 'heap', 'tree']]
+            if ds:
+                description = f"Data structures: {', '.join(ds)}"
+                suggestion = f"Implement {ds[0]} operations from scratch"
+                resources = "VisuAlgo data structure visualizations"
+        
+        return {
+            'description': description,
+            'suggestion': suggestion,
+            'resources': resources
+        }

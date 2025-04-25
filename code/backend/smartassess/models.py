@@ -63,7 +63,7 @@ class Question(models.Model):
         ('QNA', 'Written Answer'),
     ]
     
-    test = models.ForeignKey(Test, on_delete=models.CASCADE)
+    test = models.ForeignKey(Test, related_name='questions', on_delete=models.CASCADE)
     teacher = models.ForeignKey(User, on_delete=models.CASCADE, default=1)
     question_type = models.CharField(max_length=3, choices=QUESTION_TYPES, default='MCQ')
     content = models.TextField(default='Hi')
@@ -96,3 +96,54 @@ class TestAttempt(models.Model):
     end_time = models.DateTimeField(null=True, blank=True)  # When they submitted
     is_submitted = models.BooleanField(default=False)
     # ... (add more fields like score if needed) ...
+    
+class StudentAnswer(models.Model):
+    attempt = models.ForeignKey(TestAttempt, on_delete=models.CASCADE, related_name='answers')
+    question = models.ForeignKey(Question, on_delete=models.CASCADE)
+    answer_text = models.TextField()  # MCQ: 'A', 'B', etc. / QNA: free text
+
+
+class PracticeAttempt(models.Model):
+    student = models.ForeignKey(User, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    score = models.FloatField(null=True, blank=True)
+    feedback = models.TextField(blank=True)
+
+class PracticeQuestion(models.Model):
+    attempt = models.ForeignKey(PracticeAttempt, related_name='questions', on_delete=models.CASCADE)
+    question_type = models.CharField(max_length=3, choices=[('MCQ', 'MCQ'), ('QNA', 'QNA')])
+    content = models.TextField()
+    option_a = models.CharField(max_length=255, null=True, blank=True)
+    option_b = models.CharField(max_length=255, null=True, blank=True)
+    option_c = models.CharField(max_length=255, null=True, blank=True)
+    option_d = models.CharField(max_length=255, null=True, blank=True)
+    correct_option = models.CharField(max_length=1, null=True, blank=True)
+    correct_answer_text = models.TextField(null=True, blank=True)
+    student_answer = models.TextField()
+    is_correct = models.BooleanField(null=True)
+
+
+class PracticeResult(models.Model):
+    student = models.ForeignKey(User, on_delete=models.CASCADE)
+    total_score = models.FloatField()
+    total_marks = models.FloatField()
+    overall_feedback = models.TextField(null=True, blank=True)
+    suggested_topics = models.JSONField(null=True, blank=True)  # List of weak area topics
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"PracticeResult ({self.student.username}) - {self.total_score}/{self.total_marks}"
+
+
+class PracticeQuestionResult(models.Model):
+    practice_result = models.ForeignKey(PracticeResult, related_name="questions", on_delete=models.CASCADE)
+    question = models.TextField()
+    question_type = models.CharField(max_length=10)  # 'mcq' or 'qna'
+    student_answer = models.TextField()
+    correct_answer = models.TextField(null=True, blank=True)
+    is_correct = models.BooleanField(null=True, blank=True)
+    marks = models.FloatField()
+    feedback = models.TextField(null=True, blank=True)
+
+    def __str__(self):
+        return f"QuestionResult ({self.question_type}) - Marks: {self.marks}"
