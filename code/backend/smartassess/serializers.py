@@ -107,3 +107,10 @@ class PracticeResultSerializer(serializers.ModelSerializer):
         for q_data in questions_data:
             PracticeQuestionResult.objects.create(practice_result=result, **q_data)
         return result
+
+class TestAttemptSerializer(serializers.ModelSerializer):
+    answers = StudentAnswerSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = TestAttempt
+        fields = '__all__'

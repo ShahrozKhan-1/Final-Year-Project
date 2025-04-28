@@ -1,8 +1,15 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import { useUserRole } from "../auth"; // Assuming the custom hook is in this path
 
 const AdminPage = () => {
     const [unverifiedTeachers, setUnverifiedTeachers] = useState([]);
+    const role = useUserRole(); // Use the custom hook to get the role
+
+    // Protect the page so only admins can access it
+    if (role !== "admin") {
+        return <div>You are not authorized to view this page.</div>;
+    }
 
     useEffect(() => {
         fetchUnverifiedTeachers();

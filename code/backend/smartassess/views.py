@@ -23,8 +23,11 @@ import requests
 import json
 import random
 from openai import OpenAI
+import logging
 from django.conf import settings
 import asyncio
+from utils.deepseek import evaluate_with_deepseek
+import time
 import aiohttp
 import traceback
 
@@ -37,8 +40,9 @@ class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
     permission_classes = [AllowAny]
     
-class LoginView(generics.GenericAPIView):
-    permission_classes = [AllowAny] 
+
+class LoginView(APIView):
+    permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
         email = request.data.get("email")
@@ -50,14 +54,24 @@ class LoginView(generics.GenericAPIView):
             if user.role == "teacher" and not user.is_verified:
                 return Response({"message": "Admin approval required"}, status=status.HTTP_403_FORBIDDEN)
 
+            # Create the JWT with the role field
             refresh = RefreshToken.for_user(user)
+            refresh.payload['role'] = user.role  # Add role to the token payload
+
             return Response({
                 "refresh": str(refresh),
                 "access": str(refresh.access_token),
-                "user": {"id": user.id, "email": user.email, "role": user.role, "is_verified": user.is_verified}
+                "user": {
+                    "id": user.id,
+                    "email": user.email,
+                    "role": user.role,  # Send the role in the response as well
+                    "is_verified": user.is_verified
+                }
             })
 
         return Response({"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
+
+
 
 class IsAdminUser(BasePermission):
     def has_permission(self, request, view):
@@ -340,7 +354,7 @@ class GenerateQuestionsView(APIView):
     def query_deepseek(self, prompt, difficulty, question_type, count):
         """Call DeepSeek API to generate questions"""
         url = "https://openrouter.ai/api/v1/chat/completions"
-        api_key = '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' # Replace with your actual key
+        api_key = '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' # Replace with your actual key
 
         instructions = {
             "mcq": (
@@ -580,79 +594,321 @@ class SessionTestsView(APIView):
             return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
         
 
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_test_for_attempt(request, test_id):
-    user = request.user
     try:
+        # Get test or return 404
         test = get_object_or_404(Test, id=test_id)
+        user = request.user
 
-        # Ensure user is a student and is enrolled in the test's session
+        # Validate user role
         if user.role != 'student':
-            return Response({"error": "Only students can attempt tests."}, status=status.HTTP_403_FORBIDDEN)
-
-        if user not in test.session.enrolled_students.all():
-            return Response({"error": "You are not enrolled in this session."}, status=status.HTTP_403_FORBIDDEN)
-
-        # Create a TestAttempt if one doesn't already exist
-        try:
-            # Check if there is already an active TestAttempt
-            TestAttempt.objects.get(test=test, student=user, is_submitted=False)
-        except TestAttempt.DoesNotExist:
-            # If no active attempt exists, create one
-            TestAttempt.objects.create(
-                student=user,
-                test=test,
-                start_time=timezone.now(),
-                is_submitted=False
+            return Response(
+                {"error": "Only students can attempt tests"},
+                status=status.HTTP_403_FORBIDDEN
             )
 
-        # Serialize the test and its questions
-        serializer = TestSerializer(test)
-        return Response(serializer.data)
+        # Check enrollment
+        if not test.session.enrolled_students.filter(id=user.id).exists():
+            return Response(
+                {"error": "You are not enrolled in this session"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Create or get test attempt
+        attempt, created = TestAttempt.objects.get_or_create(
+            test=test,
+            student=user,
+            is_submitted=False,
+            defaults={'start_time': timezone.now()}
+        )
+
+        # Prepare response data
+        response_data = {
+            "test_id": test.id,
+            "title": test.title,
+            "time_limit_minutes": test.time_limit_minutes,
+            "attempt_id": attempt.id,
+            "questions": []
+        }
+
+        # Add questions
+        for question in test.questions.all():
+            question_data = {
+                "id": question.id,
+                "content": question.content,
+                "question_type": question.question_type,
+                "marks": 1  # Default value
+            }
+
+            if question.question_type == 'MCQ':
+                question_data['options'] = {
+                    'A': question.option_a,
+                    'B': question.option_b,
+                    'C': question.option_c,
+                    'D': question.option_d,
+                    'correct': question.correct_option
+                }
+
+            response_data['questions'].append(question_data)
+
+        return Response(response_data)
 
     except Exception as e:
-        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logging.error(f"Error in get_test_for_attempt: {str(e)}", exc_info=True)
+        return Response(
+            {"error": "Internal server error"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
-    
-    
 class SubmitTestView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, test_id):
-        user = request.user
-        answers = request.data.get('answers', {})
-
-        try:
-            test = Test.objects.get(id=test_id)
-        except Test.DoesNotExist:
-            return Response({'error': 'Test not found'}, status=404)
-
-        # Ensure an active test attempt exists
-        try:
-            attempt = TestAttempt.objects.get(test=test, student=user, is_submitted=False)
-        except TestAttempt.DoesNotExist:
-            return Response({'error': 'No active test attempt found.'}, status=400)
-
-        for question_id, answer_text in answers.items():
-            try:
-                question = Question.objects.get(id=question_id, test=test)
-            except Question.DoesNotExist:
-                continue  # skip invalid questions
-
-            StudentAnswer.objects.create(
-                attempt=attempt,
-                question=question,
-                answer_text=answer_text
+    """
+    Handles test submission and evaluation
+    URL: /student/submit-test/<test_id>/
+    """
+    
+    def post(self, request, test_id, format=None):
+        # Verify student is enrolled in the session
+        if not self.validate_student_access(request.user, test_id):
+            return Response(
+                {"error": "You are not enrolled in this test's session"},
+                status=status.HTTP_403_FORBIDDEN
             )
 
-        attempt.is_submitted = True
-        attempt.end_time = timezone.now()
+        answers = request.data.get('answers', {})
+        
+        # Validate answers
+        validation_error = self.validate_answers(test_id, answers)
+        if validation_error:
+            return validation_error
+
+        # Create test attempt
+        attempt = self.create_test_attempt(request.user, test_id)
+        
+        # Process and evaluate answers
+        results = self.process_answers(attempt, answers)
+        
+        # Update attempt with final results
+        self.finalize_attempt(attempt, results)
+        
+        return Response(
+            {
+                "message": "Test submitted successfully",
+                "attempt_id": attempt.id,
+                "score": attempt.score,
+                "correct_answers": attempt.correct_answers,
+                "total_questions": attempt.total_questions,
+                "feedback": attempt.ai_feedback,
+                "redirect_url": f"/student/test-result/{attempt.id}/"
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+    def validate_student_access(self, student, test_id):
+        """Check if student is enrolled in the test's session"""
+        try:
+            test = Test.objects.get(id=test_id)
+            return test.session.enrolled_students.filter(id=student.id).exists()
+        except Test.DoesNotExist:
+            return False
+
+    def validate_answers(self, test_id, answers):
+        """Validate answer structure and question existence"""
+        if not answers:
+            return Response(
+                {"error": "No answers provided"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        try:
+            test = Test.objects.get(id=test_id)
+            test_questions = set(test.questions.values_list('id', flat=True))
+            answer_questions = set(map(int, answers.keys()))
+            
+            # Check for extra/missing questions
+            if answer_questions - test_questions:
+                return Response(
+                    {"error": "Contains answers for non-existent questions"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+        except (ValueError, Test.DoesNotExist):
+            return Response(
+                {"error": "Invalid test ID"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        return None
+
+    def create_test_attempt(self, student, test_id):
+        """Create a new test attempt record"""
+        return TestAttempt.objects.create(
+            student=student,
+            test_id=test_id,
+            start_time=timezone.now() - timezone.timedelta(minutes=30),  # Assuming default test duration
+            end_time=timezone.now(),
+            is_submitted=True
+        )
+
+    def process_answers(self, attempt, answers):
+        """Process and evaluate each answer"""
+        correct_count = 0
+        total_questions = 0
+        suggested_topics = set()
+        
+        for question_id, answer_data in answers.items():
+            try:
+                question = Question.objects.get(id=question_id)
+                total_questions += 1
+                
+                # Handle both simple and complex answer formats
+                answer_text = answer_data.get('answer') if isinstance(answer_data, dict) else answer_data
+                
+                student_answer = StudentAnswer.objects.create(
+                    attempt=attempt,
+                    question=question,
+                    answer_text=answer_text
+                )
+                
+                # Evaluate based on question type
+                evaluation = self.evaluate_answer(question, answer_text)
+                
+                if evaluation['is_correct']:
+                    correct_count += 1
+                
+                if evaluation['weak_topics']:
+                    suggested_topics.update(evaluation['weak_topics'])
+                
+                # Update student answer with evaluation results
+                student_answer.is_correct = evaluation['is_correct']
+                student_answer.ai_feedback = evaluation['feedback']
+                student_answer.suggested_topics = evaluation['weak_topics']
+                student_answer.save()
+                
+                time.sleep(0.5)  # Rate limiting for API calls
+                
+            except Question.DoesNotExist:
+                continue
+        
+        return {
+            'score': (correct_count / total_questions) * 100 if total_questions > 0 else 0,
+            'correct_count': correct_count,
+            'total_questions': total_questions,
+            'suggested_topics': list(suggested_topics)
+        }
+
+    def evaluate_answer(self, question, answer_text):
+        """Evaluate answer based on question type"""
+        if question.question_type == 'MCQ':
+            is_correct = answer_text.upper() == question.correct_option.upper()
+            feedback = (
+                "Correct answer!" if is_correct 
+                else f"Incorrect. The correct answer was {question.correct_option}."
+            )
+            return {
+                'is_correct': is_correct,
+                'feedback': feedback,
+                'weak_topics': []
+            }
+        else:
+            return self.evaluate_qna_answer(question, answer_text)
+
+    def evaluate_qna_answer(self, question, answer_text):
+        """Evaluate written answer using DeepSeek API"""
+        prompt = f"""
+        Evaluate this student answer for the question:
+
+        QUESTION: {question.content}
+        IDEAL ANSWER: {question.ideal_answer if hasattr(question, 'ideal_answer') else 'Not provided'}
+        STUDENT ANSWER: {answer_text}
+
+        Provide:
+        1. Correctness evaluation (True/False)
+        2. Detailed feedback
+        3. 2-3 weak topic areas
+
+        Respond in JSON format:
+        {{
+            "is_correct": bool,
+            "feedback": str,
+            "weak_topics": List[str]
+        }}
+        """
+        
+        try:
+            response = evaluate_with_deepseek(prompt)
+            if not response:
+                raise ValueError("API request failed")
+                
+            content = response['choices'][0]['message']['content']
+            evaluation = json.loads(content.strip())
+            
+            # Validate evaluation format
+            return {
+                'is_correct': evaluation.get('is_correct', False),
+                'feedback': evaluation.get('feedback', 'No feedback generated'),
+                'weak_topics': evaluation.get('weak_topics', [])
+            }
+            
+        except Exception as e:
+            print(f"Evaluation error: {e}")
+            return {
+                'is_correct': False,
+                'feedback': 'Could not evaluate answer',
+                'weak_topics': []
+            }
+
+    def finalize_attempt(self, attempt, results):
+        """Update attempt with final results and feedback"""
+        attempt.score = results['score']
+        attempt.correct_answers = results['correct_count']
+        attempt.total_questions = results['total_questions']
+        attempt.suggested_topics = results['suggested_topics']
+        attempt.ai_feedback = self.generate_overall_feedback(
+            score=results['score'],
+            correct=results['correct_count'],
+            total=results['total_questions'],
+            topics=results['suggested_topics']
+        )
         attempt.save()
 
-        return Response({'message': 'Test submitted successfully'})
+    def generate_overall_feedback(self, score, correct, total, topics):
+        """Generate comprehensive test feedback"""
+        performance_levels = [
+            (90, "Excellent", "You've demonstrated mastery of the material"),
+            (75, "Good", "Solid understanding with minor areas for improvement"),
+            (60, "Average", "Adequate understanding but needs more practice"),
+            (0, "Needs Improvement", "Fundamental concepts need reinforcement")
+        ]
+        
+        for threshold, level, message in performance_levels:
+            if score >= threshold:
+                feedback = f"""
+                TEST RESULTS - {level}
+                Score: {score:.1f}% ({correct}/{total} correct)
+                
+                Overall Performance:
+                {message}
+                
+                Key Areas to Improve:
+                {', '.join(topics) if topics else 'No specific weak areas identified'}
+                
+                Recommendations:
+                {self.get_study_recommendation(score)}
+                """
+                return feedback.strip()
+                
+        return "Test evaluation completed."
 
+    def get_study_recommendation(self, score):
+        """Generate personalized study recommendations"""
+        if score >= 85:
+            return "Consider exploring advanced topics to further enhance your knowledge."
+        elif score >= 65:
+            return "Review the identified weak areas and practice similar questions."
+        else:
+            return "Focus on fundamental concepts through guided practice sessions."
 
 class PracticeGenerateQuestionsView(APIView):
     permission_classes = [IsAuthenticated]
@@ -712,7 +968,7 @@ class PracticeGenerateQuestionsView(APIView):
 
     def query_deepseek(self, prompt, difficulty, question_type, count):
         url = "https://openrouter.ai/api/v1/chat/completions"
-        api_key = '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'
+        api_key = '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'
 
         instruction = {
             "mcq": (
@@ -824,11 +1080,13 @@ class PracticeCheckView(APIView):
             'question_type': question_type,
             'student_answer': student_answer,
             'correct_answer': correct_answer,
+            'correct_option': correct_option,  # Add this to store the correct option key
             'options': options
         }
 
         if question_type == 'MCQ':
-            is_correct = student_answer == correct_answer
+            # Compare with the option key (a/b/c/d) not the full answer text
+            is_correct = student_answer == correct_option
             result.update({
                 'is_correct': is_correct,
                 'marks': 1 if is_correct else 0,

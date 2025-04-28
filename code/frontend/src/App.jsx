@@ -1,5 +1,5 @@
-import { BrowserRouter as Router, Routes, Route, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
+import React from "react";
+import { Routes, Route } from "react-router-dom";
 import Home from "./Pages/Home";
 import Login from "./Pages/Login";
 import Register from "./Pages/Register";
@@ -11,29 +11,26 @@ import EnrollSession from "./Components/EnrollSession";
 import TeacherRequests from "./Components/TeacherRequests";
 import CreateTest from "./Components/CreateTest";
 import AttemptTest from "./Pages/AttemptTest";
-import ProtectedRoute from "./Components/ProtectedRoutes";
 import PracticeSetup from "./Components/PracticeSetup";
+import ResultPage from "./Pages/ResultPage";
 
 function App() {
-
-
   return (
-    <Router>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/student-dashboard" element={<StudentPage />} />
-        <Route path="/teacher-dashboard" element={<TeacherPage />} />
-        <Route path="/admin-panel" element={<AdminPage />} />
-        <Route path="/teacher/create-session" element={<CreateSession />} />
-        <Route path="/student/enroll-session" element={<EnrollSession />} />
-        <Route path="/teacher-request" element={<TeacherRequests />} />
-        <Route path="/create-test/:sessionId" element={<CreateTest />} />
-        <Route path="/student/practice" element={<PracticeSetup />} />
-        <Route path="/student/attempt-test/:testId" element={<AttemptTest />} />
-        <Route path="/" element={<Login />} />
-      </Routes>
-    </Router>
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+      <Route path="/student-dashboard" element={<StudentPage />} />
+      <Route path="/teacher-dashboard" element={<TeacherPage />} />
+      <Route path="/admin-panel" element={<AdminPage />} />
+      <Route path="/teacher/create-session" element={<CreateSession />} />
+      <Route path="/student/enroll-session" element={<EnrollSession />} />
+      <Route path="/teacher-request" element={<TeacherRequests />} />
+      <Route path="/create-test/:sessionId" element={<CreateTest />} />
+      <Route path="/student/practice" element={<PracticeSetup />} />
+      <Route path="/student/attempt-test/:testId" element={<AttemptTest />} />
+      <Route path="/result-page/:testId" element={<ResultPage />} />
+      <Route path="/" element={<Login />} />
+    </Routes>
   );
 }
 

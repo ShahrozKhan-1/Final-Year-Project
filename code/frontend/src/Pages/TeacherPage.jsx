@@ -1,17 +1,36 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import CreateSession from '../Components/CreateSession';
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useUserRole } from '../auth';
+import CreateSession from '../Components/CreateSession';
+import axios from 'axios';
 
-function TeacherPage() {
+export default function TeacherPage() {
   const [showModal, setShowModal] = useState(false);
   const [sessions, setSessions] = useState([]);
+  const [loadingSessions, setLoadingSessions] = useState(true);
+  const [error, setError] = useState(null);
   const navigate = useNavigate();
+  const role = useUserRole();  // Now assume it returns `null` initially while loading
   const token = localStorage.getItem("access_token");
 
   useEffect(() => {
+    if (!token) {
+      navigate("/login");
+      return;
+    }
+
+    if (role === null) {
+      // Still loading role, wait
+      return;
+    }
+
+    if (role !== "teacher") {
+      navigate("/login");
+      return;
+    }
+
     fetchTeacherSessions();
-  }, []);
+  }, [role, navigate]);
 
   const fetchTeacherSessions = async () => {
     try {
@@ -22,7 +41,10 @@ function TeacherPage() {
       });
       setSessions(response.data);
     } catch (error) {
-      console.error("Error fetching sessions:", error.response?.data || error);
+      console.error("Error fetching sessions:", error);
+      setError(error.response?.data?.message || "Failed to load sessions");
+    } finally {
+      setLoadingSessions(false);
     }
   };
 
@@ -30,28 +52,78 @@ function TeacherPage() {
     navigate('/teacher-request');
   };
 
+  if (role === null) {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <div className="text-xl font-semibold">Loading...</div>
+      </div>
+    );
+  }
+
+  if (loadingSessions) {
+    return (
+      <div className="p-4">Loading sessions...</div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-4 text-red-500">{error}</div>
+    );
+  }
+
   return (
-    <div>
-      <h2>Teacher Dashboard</h2>
-      <button onClick={() => setShowModal(true)}>Add Session</button>
+    <div className="p-4">
+      <h1 className="text-2xl font-semibold mb-4">Teacher Dashboard</h1>
+      
+      <div className="flex space-x-4 mb-6">
+        <button
+          onClick={() => setShowModal(true)}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        >
+          Add Session
+        </button>
+        <button
+          onClick={handleNavigation}
+          className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+        >
+          Student Requests
+        </button>
+      </div>
+
       {showModal && (
-        <div className="modal">
-          <CreateSession onClose={() => { setShowModal(false); fetchTeacherSessions(); }} />
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <CreateSession 
+              onClose={() => {
+                setShowModal(false);
+                fetchTeacherSessions();
+              }} 
+            />
+          </div>
         </div>
       )}
-      <button onClick={handleNavigation}>Student Request</button>
 
-      <h3>My Created Sessions:</h3>
-      {sessions.map(session => (
-        <div key={session.id}>
-          <h4>{session.session_name}</h4>
-          <p>{session.description}</p>
-          {/* Button for creating test in this session */}
-          <button onClick={() => navigate(`/create-test/${session.id}`)}>Create Test</button>
+      <h2 className="text-xl font-semibold mb-4">My Created Sessions:</h2>
+      
+      {sessions.length === 0 ? (
+        <p className="text-center">You haven't created any sessions yet.</p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {sessions.map(session => (
+            <div key={session.id} className="border p-4 rounded-lg shadow hover:shadow-md transition">
+              <h3 className="font-bold text-lg">{session.session_name}</h3>
+              <p className="text-gray-600 mb-3">{session.description}</p>
+              <button
+                onClick={() => navigate(`/create-test/${session.id}`)}
+                className="w-full bg-purple-600 text-white px-3 py-1 rounded text-sm hover:bg-purple-700"
+              >
+                Create Test
+              </button>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
     </div>
   );
 }
-
-export default TeacherPage;

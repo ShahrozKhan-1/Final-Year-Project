@@ -87,20 +87,38 @@ class Question(models.Model):
     def __str__(self):
         return f"{self.get_question_type_display()}: {self.content[:50]}..."
 
-    
-# models.py
+
 class TestAttempt(models.Model):
     student = models.ForeignKey(User, on_delete=models.CASCADE)
-    test = models.ForeignKey(Test, on_delete=models.CASCADE)
-    start_time = models.DateTimeField()  # When the student started
-    end_time = models.DateTimeField(null=True, blank=True)  # When they submitted
+    test = models.ForeignKey('Test', on_delete=models.CASCADE)
+    start_time = models.DateTimeField(auto_now_add=True)
+    end_time = models.DateTimeField(null=True, blank=True)
     is_submitted = models.BooleanField(default=False)
-    # ... (add more fields like score if needed) ...
-    
+    score = models.FloatField(null=True, blank=True)
+    correct_answers = models.IntegerField(default=0)
+    total_questions = models.IntegerField(default=0)
+    ai_feedback = models.TextField(null=True, blank=True, default="...")
+    suggested_topics = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('student', 'test')
+
+    def __str__(self):
+        return f"{self.student.username}'s attempt on {self.test.title}"
+
 class StudentAnswer(models.Model):
     attempt = models.ForeignKey(TestAttempt, on_delete=models.CASCADE, related_name='answers')
-    question = models.ForeignKey(Question, on_delete=models.CASCADE)
-    answer_text = models.TextField()  # MCQ: 'A', 'B', etc. / QNA: free text
+    question = models.ForeignKey('Question', on_delete=models.CASCADE)
+    answer_text = models.TextField()
+    is_correct = models.BooleanField(null=True, blank=True)
+    ai_feedback = models.TextField(null=True, blank=True)
+    suggested_topics = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('attempt', 'question')
+
+    def __str__(self):
+        return f"Answer for Q{self.question.id} in attempt {self.attempt.id}"
 
 
 class PracticeAttempt(models.Model):
