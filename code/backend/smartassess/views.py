@@ -18,6 +18,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.core.files.storage import default_storage
 import fitz  # PyMuPDF for PDF
+from rest_framework.generics import RetrieveAPIView
 import docx 
 import requests
 import json
@@ -354,7 +355,7 @@ class GenerateQuestionsView(APIView):
     def query_deepseek(self, prompt, difficulty, question_type, count):
         """Call DeepSeek API to generate questions"""
         url = "https://openrouter.ai/api/v1/chat/completions"
-        api_key = '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' # Replace with your actual key
+        api_key = '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' # Replace with your actual key
 
         instructions = {
             "mcq": (
@@ -662,253 +663,180 @@ def get_test_for_attempt(request, test_id):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
+
 class SubmitTestView(APIView):
-    """
-    Handles test submission and evaluation
-    URL: /student/submit-test/<test_id>/
-    """
-    
     def post(self, request, test_id, format=None):
-        # Verify student is enrolled in the session
-        if not self.validate_student_access(request.user, test_id):
-            return Response(
-                {"error": "You are not enrolled in this test's session"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        answers = request.data.get('answers', {})
-        
-        # Validate answers
-        validation_error = self.validate_answers(test_id, answers)
-        if validation_error:
-            return validation_error
-
-        # Create test attempt
-        attempt = self.create_test_attempt(request.user, test_id)
-        
-        # Process and evaluate answers
-        results = self.process_answers(attempt, answers)
-        
-        # Update attempt with final results
-        self.finalize_attempt(attempt, results)
-        
-        return Response(
-            {
-                "message": "Test submitted successfully",
-                "attempt_id": attempt.id,
-                "score": attempt.score,
-                "correct_answers": attempt.correct_answers,
-                "total_questions": attempt.total_questions,
-                "feedback": attempt.ai_feedback,
-                "redirect_url": f"/student/test-result/{attempt.id}/"
-            },
-            status=status.HTTP_201_CREATED
-        )
-
-    def validate_student_access(self, student, test_id):
-        """Check if student is enrolled in the test's session"""
+        """
+        Submit test answers and get detailed results
+        Returns:
+        - Detailed question-by-question results
+        - Student answers vs correct answers
+        - AI-generated improvement suggestions
+        """
         try:
-            test = Test.objects.get(id=test_id)
-            return test.session.enrolled_students.filter(id=student.id).exists()
-        except Test.DoesNotExist:
-            return False
-
-    def validate_answers(self, test_id, answers):
-        """Validate answer structure and question existence"""
-        if not answers:
-            return Response(
-                {"error": "No answers provided"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-            
-        try:
-            test = Test.objects.get(id=test_id)
-            test_questions = set(test.questions.values_list('id', flat=True))
-            answer_questions = set(map(int, answers.keys()))
-            
-            # Check for extra/missing questions
-            if answer_questions - test_questions:
+            # Check if test already submitted
+            if TestAttempt.objects.filter(
+                student=request.user,
+                test_id=test_id,
+                is_submitted=True
+            ).exists():
                 return Response(
-                    {"error": "Contains answers for non-existent questions"},
+                    {"error": "You have already submitted this test"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-                
-        except (ValueError, Test.DoesNotExist):
+
+            # Process and validate answers
+            raw_answers = request.data.get('answers', {})
+            answers = self.normalize_answers(raw_answers)
+            
+            validation_error = self.validate_answers(test_id, answers)
+            if validation_error:
+                return validation_error
+
+            # Create or update attempt
+            attempt = self.create_or_update_attempt(request.user, test_id)
+            
+            # Process and evaluate answers
+            results = self.process_answers(attempt, answers)
+            
+            # Finalize attempt results
+            self.finalize_attempt(attempt, results)
+            
+            # Generate detailed response
+            response_data = self.generate_response_data(attempt, results)
+            
             return Response(
-                {"error": "Invalid test ID"},
-                status=status.HTTP_400_BAD_REQUEST
+                response_data,
+                status=status.HTTP_201_CREATED
             )
-        
-        return None
 
-    def create_test_attempt(self, student, test_id):
-        """Create a new test attempt record"""
-        return TestAttempt.objects.create(
-            student=student,
-            test_id=test_id,
-            start_time=timezone.now() - timezone.timedelta(minutes=30),  # Assuming default test duration
-            end_time=timezone.now(),
-            is_submitted=True
-        )
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
-    def process_answers(self, attempt, answers):
-        """Process and evaluate each answer"""
-        correct_count = 0
-        total_questions = 0
-        suggested_topics = set()
+    def generate_response_data(self, attempt, results):
+        """Generate comprehensive response with detailed results"""
+        questions_data = []
+        student_answers = StudentAnswer.objects.filter(attempt=attempt)
         
-        for question_id, answer_data in answers.items():
-            try:
-                question = Question.objects.get(id=question_id)
-                total_questions += 1
-                
-                # Handle both simple and complex answer formats
-                answer_text = answer_data.get('answer') if isinstance(answer_data, dict) else answer_data
-                
-                student_answer = StudentAnswer.objects.create(
-                    attempt=attempt,
-                    question=question,
-                    answer_text=answer_text
-                )
-                
-                # Evaluate based on question type
-                evaluation = self.evaluate_answer(question, answer_text)
-                
-                if evaluation['is_correct']:
-                    correct_count += 1
-                
-                if evaluation['weak_topics']:
-                    suggested_topics.update(evaluation['weak_topics'])
-                
-                # Update student answer with evaluation results
-                student_answer.is_correct = evaluation['is_correct']
-                student_answer.ai_feedback = evaluation['feedback']
-                student_answer.suggested_topics = evaluation['weak_topics']
-                student_answer.save()
-                
-                time.sleep(0.5)  # Rate limiting for API calls
-                
-            except Question.DoesNotExist:
-                continue
+        for answer in student_answers:
+            question = answer.question
+            questions_data.append({
+                "question_id": question.id,
+                "content": question.content,
+                "question_type": question.question_type,
+                "student_answer": answer.answer_text,
+                "correct_answer": question.correct_option if question.question_type == 'MCQ' else None,
+                "is_correct": answer.is_correct,
+                "feedback": answer.ai_feedback,
+                "marks": question.marks,
+                "marks_awarded": question.marks if answer.is_correct else 0
+            })
         
         return {
-            'score': (correct_count / total_questions) * 100 if total_questions > 0 else 0,
-            'correct_count': correct_count,
-            'total_questions': total_questions,
-            'suggested_topics': list(suggested_topics)
+            "attempt_id": attempt.id,
+            "score": attempt.score,
+            "correct_answers": attempt.correct_answers,
+            "total_questions": attempt.total_questions,
+            "content": question.content,
+            "questions": questions_data,
+            "suggested_topics": self.generate_ai_suggestions(attempt),
+            "feedback": attempt.ai_feedback,
+            "redirect_url": f"/student/test-result/{attempt.id}/"
         }
 
-    def evaluate_answer(self, question, answer_text):
-        """Evaluate answer based on question type"""
-        if question.question_type == 'MCQ':
-            is_correct = answer_text.upper() == question.correct_option.upper()
-            feedback = (
-                "Correct answer!" if is_correct 
-                else f"Incorrect. The correct answer was {question.correct_option}."
-            )
-            return {
-                'is_correct': is_correct,
-                'feedback': feedback,
-                'weak_topics': []
-            }
-        else:
-            return self.evaluate_qna_answer(question, answer_text)
-
-    def evaluate_qna_answer(self, question, answer_text):
-        """Evaluate written answer using DeepSeek API"""
-        prompt = f"""
-        Evaluate this student answer for the question:
-
-        QUESTION: {question.content}
-        IDEAL ANSWER: {question.ideal_answer if hasattr(question, 'ideal_answer') else 'Not provided'}
-        STUDENT ANSWER: {answer_text}
-
-        Provide:
-        1. Correctness evaluation (True/False)
-        2. Detailed feedback
-        3. 2-3 weak topic areas
-
-        Respond in JSON format:
-        {{
-            "is_correct": bool,
-            "feedback": str,
-            "weak_topics": List[str]
-        }}
-        """
-        
+    def generate_ai_suggestions(self, attempt):
+        """Generate AI-powered improvement suggestions"""
         try:
-            response = evaluate_with_deepseek(prompt)
-            if not response:
-                raise ValueError("API request failed")
-                
-            content = response['choices'][0]['message']['content']
-            evaluation = json.loads(content.strip())
+            # Get all incorrect answers
+            incorrect_answers = StudentAnswer.objects.filter(
+                attempt=attempt,
+                is_correct=False
+            ).select_related('question')
             
-            # Validate evaluation format
-            return {
-                'is_correct': evaluation.get('is_correct', False),
-                'feedback': evaluation.get('feedback', 'No feedback generated'),
-                'weak_topics': evaluation.get('weak_topics', [])
-            }
+            if not incorrect_answers.exists():
+                return []
+            
+            # Prepare context for AI analysis
+            context = "\n".join(
+                f"Question: {a.question.content}\n"
+                f"Student Answer: {a.answer_text}\n"
+                f"Correct Answer: {a.question.correct_option if a.question.question_type == 'MCQ' else 'N/A'}\n"
+                for a in incorrect_answers
+            )
+            
+            # Call DeepSeek AI API (implementation depends on your AI setup)
+            ai_response = self.call_deepseek_ai(
+                f"Analyze these test answers and suggest improvement topics:\n{context}"
+            )
+            
+            # Parse AI response (example implementation)
+            return self.parse_ai_suggestions(ai_response)
             
         except Exception as e:
-            print(f"Evaluation error: {e}")
+            print(f"Error generating AI suggestions: {str(e)}")
+            return []
+
+    def call_deepseek_ai(self, prompt):
+        """Call DeepSeek AI API (placeholder - implement according to your AI setup)"""
+        # This is a placeholder - implement actual API call
+        # Example implementation might use requests.post() to your AI endpoint
+        return {
+            "suggestions": [
+                {
+                    "topic": "React Components",
+                    "reason": "Missed questions about component lifecycle",
+                    "resources": ["React Docs - Components", "Video Tutorial #123"]
+                }
+            ]
+        }
+
+    def parse_ai_suggestions(self, ai_response):
+        """Parse AI response into structured suggestions"""
+        try:
+            return [
+                {
+                    "topic": suggestion.get("topic", ""),
+                    "reason": suggestion.get("reason", ""),
+                    "resources": suggestion.get("resources", [])
+                }
+                for suggestion in ai_response.get("suggestions", [])
+            ]
+        except Exception as e:
+            print(f"Error parsing AI suggestions: {str(e)}")
+            return []
+
+    # ... (keep all your existing methods: normalize_answers, validate_answers, 
+    # create_or_update_attempt, process_answers, evaluate_answer, evaluate_qna_answer, 
+    # finalize_attempt, generate_feedback)
+
+    def evaluate_qna_answer(self, question, answer_text):
+        """Enhanced QNA evaluation with AI feedback"""
+        try:
+            # Call DeepSeek AI for evaluation
+            ai_response = self.call_deepseek_ai(
+                f"Evaluate this answer for the question '{question.content}':\n"
+                f"{answer_text}\n\n"
+                f"Provide feedback and mark out of {question.marks}."
+            )
+            
+            # Parse AI response (example implementation)
+            return {
+                'is_correct': ai_response.get('is_correct', False),
+                'feedback': ai_response.get('feedback', 'No feedback provided'),
+                'weak_topics': ai_response.get('weak_topics', []),
+                'marks_awarded': ai_response.get('marks_awarded', 0)
+            }
+        except Exception as e:
+            print(f"AI evaluation error: {str(e)}")
             return {
                 'is_correct': False,
                 'feedback': 'Could not evaluate answer',
-                'weak_topics': []
+                'weak_topics': [],
+                'marks_awarded': 0
             }
-
-    def finalize_attempt(self, attempt, results):
-        """Update attempt with final results and feedback"""
-        attempt.score = results['score']
-        attempt.correct_answers = results['correct_count']
-        attempt.total_questions = results['total_questions']
-        attempt.suggested_topics = results['suggested_topics']
-        attempt.ai_feedback = self.generate_overall_feedback(
-            score=results['score'],
-            correct=results['correct_count'],
-            total=results['total_questions'],
-            topics=results['suggested_topics']
-        )
-        attempt.save()
-
-    def generate_overall_feedback(self, score, correct, total, topics):
-        """Generate comprehensive test feedback"""
-        performance_levels = [
-            (90, "Excellent", "You've demonstrated mastery of the material"),
-            (75, "Good", "Solid understanding with minor areas for improvement"),
-            (60, "Average", "Adequate understanding but needs more practice"),
-            (0, "Needs Improvement", "Fundamental concepts need reinforcement")
-        ]
-        
-        for threshold, level, message in performance_levels:
-            if score >= threshold:
-                feedback = f"""
-                TEST RESULTS - {level}
-                Score: {score:.1f}% ({correct}/{total} correct)
-                
-                Overall Performance:
-                {message}
-                
-                Key Areas to Improve:
-                {', '.join(topics) if topics else 'No specific weak areas identified'}
-                
-                Recommendations:
-                {self.get_study_recommendation(score)}
-                """
-                return feedback.strip()
-                
-        return "Test evaluation completed."
-
-    def get_study_recommendation(self, score):
-        """Generate personalized study recommendations"""
-        if score >= 85:
-            return "Consider exploring advanced topics to further enhance your knowledge."
-        elif score >= 65:
-            return "Review the identified weak areas and practice similar questions."
-        else:
-            return "Focus on fundamental concepts through guided practice sessions."
 
 class PracticeGenerateQuestionsView(APIView):
     permission_classes = [IsAuthenticated]
@@ -968,7 +896,7 @@ class PracticeGenerateQuestionsView(APIView):
 
     def query_deepseek(self, prompt, difficulty, question_type, count):
         url = "https://openrouter.ai/api/v1/chat/completions"
-        api_key = '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'
+        api_key = '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'
 
         instruction = {
             "mcq": (
@@ -1239,3 +1167,142 @@ class PracticeCheckView(APIView):
             'suggestion': suggestion,
             'resources': resources
         }
+    
+class TestResultView(APIView):
+    def get(self, request, attempt_id, format=None):
+        try:
+            attempt = TestAttempt.objects.get(id=attempt_id)
+            
+            # Verify the requesting user owns this attempt
+            if attempt.student != request.user:
+                return Response(
+                    {"error": "Unauthorized access"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            return Response({
+                "score": attempt.score,
+                "correct_answers": attempt.correct_answers,
+                "total_questions": attempt.total_questions,
+                "feedback": attempt.ai_feedback,
+                "suggested_topics": attempt.suggested_topics or []
+            })
+            
+        except TestAttempt.DoesNotExist:
+            return Response(
+                {"error": "Test results not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+
+
+class TestResultEvaluator(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, attempt_id):
+        attempt = get_object_or_404(TestAttempt, id=attempt_id, student=request.user)
+        answers = attempt.answers.select_related("question").all()
+
+        total = answers.count()
+        correct = 0
+        topic_set = set()
+        result_list = []
+
+        for answer in answers:
+            question = answer.question
+            student_response = answer.answer_text.strip()
+            is_correct = False
+            ai_feedback = None
+            suggested_topic = None
+
+            # Prepare prompt for DeepSeek (MCQ + QNA)
+            if question.question_type == "MCQ":
+                prompt = f"""
+You are an AI teacher. Evaluate the following MCQ and check if the student's answer is correct.
+
+Question: {question.content}
+Options:
+A. {question.option_a}
+B. {question.option_b}
+C. {question.option_c}
+D. {question.option_d}
+
+Correct Option: {question.correct_option}
+Student Answer: {student_response}
+
+Respond in JSON format like:
+{{
+  "is_correct": true,
+  "feedback": "Well done!",
+  "suggested_topic": null
+}}
+"""
+            else:
+                prompt = f"""
+You are an AI teacher grading a student's written answer.
+
+Question: {question.content}
+Student Answer: {student_response}
+
+Respond in JSON format like:
+{{
+  "is_correct": true,
+  "feedback": "You mentioned the right points but missed the explanation about X.",
+  "suggested_topic": "X"
+}}
+"""
+
+            # Evaluate via DeepSeek
+            result = evaluate_with_deepseek(prompt)
+
+            try:
+                parsed = json.loads(result['choices'][0]['message']['content'])
+                is_correct = parsed.get("is_correct", False)
+                ai_feedback = parsed.get("feedback", "No feedback")
+                suggested_topic = parsed.get("suggested_topic")
+                if suggested_topic:
+                    topic_set.add(suggested_topic)
+            except Exception as e:
+                is_correct = False
+                ai_feedback = "AI evaluation failed."
+                suggested_topic = None
+                print("Parsing error:", e)
+
+            # Save to DB
+            answer.is_correct = is_correct
+            answer.ai_feedback = ai_feedback
+            answer.suggested_topics = [suggested_topic] if suggested_topic else []
+            answer.save()
+
+            if is_correct:
+                correct += 1
+
+            result_list.append({
+                "question_id": question.id,
+                "question": question.content,
+                "question_type": question.question_type,
+                "student_answer": student_response,
+                "correct_option": question.correct_option if question.question_type == "MCQ" else None,
+                "is_correct": is_correct,
+                "feedback": ai_feedback,
+                "suggested_topic": suggested_topic
+            })
+
+        # Final attempt stats
+        score = round((correct / total) * 100, 2)
+        attempt.score = score
+        attempt.correct_answers = correct
+        attempt.total_questions = total
+        attempt.ai_feedback = f"You scored {score}%. Recommended focus: {', '.join(topic_set) if topic_set else 'None'}"
+        attempt.suggested_topics = list(topic_set)
+        attempt.is_submitted = True
+        attempt.save()
+
+        return Response({
+            "score": score,
+            "correct_answers": correct,
+            "total_questions": total,
+            "feedback": attempt.ai_feedback,
+            "suggested_topics": list(topic_set),
+            "questions": result_list
+        })

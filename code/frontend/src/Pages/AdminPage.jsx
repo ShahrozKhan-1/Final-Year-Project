@@ -1,46 +1,59 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import { useUserRole } from "../auth"; // Assuming the custom hook is in this path
+import { useUserRole } from "../auth";
+import { useNavigate } from "react-router-dom";
 
 const AdminPage = () => {
     const [unverifiedTeachers, setUnverifiedTeachers] = useState([]);
-    const role = useUserRole(); // Use the custom hook to get the role
-
-    // Protect the page so only admins can access it
-    if (role !== "admin") {
-        return <div>You are not authorized to view this page.</div>;
-    }
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const { role, loading: roleLoading } = useUserRole(); // Destructure properly
+    const navigate = useNavigate();
 
     useEffect(() => {
-        fetchUnverifiedTeachers();
-    }, []);
+        // Don't proceed if we're still loading the role
+        if (roleLoading) return;
 
-    const fetchUnverifiedTeachers = async () => {
-        try {
-            const token = localStorage.getItem("access_token");
-            if (!token) {
-                console.error("No access token found");
-                return;
-            }
-            const response = await axios.get("http://127.0.0.1:8000/unverified-teachers/", {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            setUnverifiedTeachers(response.data);
-        } catch (error) {
-            console.error("Error fetching unverified teachers:", error.response?.data || error.message);
+        const token = localStorage.getItem("access_token");
+        
+        // If no token or role isn't admin, redirect
+        if (!token || role !== "admin") {
+            navigate("/login");
+            return;
         }
-    };
+
+        // Only fetch data if we have a valid admin token
+        const fetchData = async () => {
+            try {
+                const response = await axios.get(
+                    "http://127.0.0.1:8000/unverified-teachers/",
+                    {
+                        headers: {
+                            Authorization: `Bearer ${token}`,
+                        },
+                    }
+                );
+                setUnverifiedTeachers(response.data);
+            } catch (err) {
+                if (err.response?.status === 401) {
+                    localStorage.removeItem("access_token");
+                    navigate("/login");
+                } else {
+                    setError("Failed to load teacher data");
+                    console.error(err);
+                }
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchData();
+    }, [role, roleLoading, navigate]);
 
     const approveTeacher = async (teacherId) => {
         try {
             const token = localStorage.getItem("access_token");
-            if (!token) {
-                console.error("No access token found");
-                return;
-            }
-            const response = await axios.patch(
+            await axios.patch(
                 `http://127.0.0.1:8000/approve-teacher/${teacherId}/`,
                 {},
                 {
@@ -50,24 +63,46 @@ const AdminPage = () => {
                     },
                 }
             );
-            console.log("Teacher approved:", response.data);
-            fetchUnverifiedTeachers();
+            // Refresh the list after approval
+            const response = await axios.get(
+                "http://127.0.0.1:8000/unverified-teachers/",
+                {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                }
+            );
+            setUnverifiedTeachers(response.data);
         } catch (error) {
-            console.error("Error approving teacher:", error.response?.data || error.message);
+            console.error("Error approving teacher:", error);
+            setError("Failed to approve teacher");
         }
     };
 
+    if (roleLoading || loading) {
+        return <div>Loading admin dashboard...</div>;
+    }
+
+    if (error) {
+        return <div className="error-message">{error}</div>;
+    }
+
     return (
-        <div>
+        <div className="admin-container">
             <h2>Admin Panel - Approve Teachers</h2>
             {unverifiedTeachers.length === 0 ? (
                 <p>No teachers pending approval.</p>
             ) : (
-                <ul>
+                <ul className="teacher-list">
                     {unverifiedTeachers.map((teacher) => (
-                        <li key={teacher.id}>
-                            {teacher.email}
-                            <button onClick={() => approveTeacher(teacher.id)}>Approve</button>
+                        <li key={teacher.id} className="teacher-item">
+                            <span>{teacher.email}</span>
+                            <button
+                                onClick={() => approveTeacher(teacher.id)}
+                                className="approve-btn"
+                            >
+                                Approve
+                            </button>
                         </li>
                     ))}
                 </ul>

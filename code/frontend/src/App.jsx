@@ -28,7 +28,7 @@ function App() {
       <Route path="/create-test/:sessionId" element={<CreateTest />} />
       <Route path="/student/practice" element={<PracticeSetup />} />
       <Route path="/student/attempt-test/:testId" element={<AttemptTest />} />
-      <Route path="/result-page/:testId" element={<ResultPage />} />
+      <Route path="/result-page/:attemptId" element={<ResultPage />} />
       <Route path="/" element={<Login />} />
     </Routes>
   );

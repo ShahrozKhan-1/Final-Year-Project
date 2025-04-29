@@ -11,18 +11,33 @@ const QUESTION_TYPES = {
 const AttemptTest = () => {
   const { testId } = useParams();
   const navigate = useNavigate();
-  const role = useUserRole();
+  const { role, loading: roleLoading } = useUserRole(); // Destructure properly
   const token = localStorage.getItem('access_token');
 
   const [testDetails, setTestDetails] = useState(null);
   const [questions, setQuestions] = useState([]);
-  const [Submitting, setSubmitting] = useState([]);
+  const [Submitting, setSubmitting] = useState(false);
   const [answers, setAnswers] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [timeRemaining, setTimeRemaining] = useState(null);
 
   useEffect(() => {
+    // Redirect if not authenticated or not a student
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+
+    if (!roleLoading && role !== 'student') {
+      navigate('/login');
+      return;
+    }
+  }, [role, roleLoading, navigate, token]);
+
+  useEffect(() => {
+    if (roleLoading || !token || role !== 'student') return;
+
     const fetchTestData = async () => {
       try {
         setLoading(true);
@@ -54,14 +69,19 @@ const AttemptTest = () => {
         }
       } catch (err) {
         console.error('Fetch Test Error:', err);
-        setError(err?.response?.data?.error || err.message || 'Failed to fetch test');
+        if (err.response?.status === 401) {
+          localStorage.removeItem('access_token');
+          navigate('/login');
+        } else {
+          setError(err?.response?.data?.error || err.message || 'Failed to fetch test');
+        }
       } finally {
         setLoading(false);
       }
     };
 
     fetchTestData();
-  }, [testId, token]);
+  }, [testId, token, role, roleLoading, navigate]);
 
   useEffect(() => {
     if (timeRemaining === null) return;
@@ -88,58 +108,52 @@ const AttemptTest = () => {
   };
 
   const handleAutoSubmit = async () => {
-    if (Object.keys(answers).length > 0) {
+    if (Object.keys(answers).length > 0 && !Submitting) {
       await handleSubmit();
     }
   };
 
   const handleSubmit = async () => {
-    setSubmitting(true);
+    if (Submitting) return;
     
     try {
-      // Prepare payload
+      setSubmitting(true);
       const payload = {
-        attempt_id: testDetails.attemptId,
-        answers: Object.entries(answers)
-          .filter(([_, answer]) => answer !== undefined && answer !== '')
-          .map(([questionId, answer]) => ({
-            question_id: Number(questionId),
-            answer: typeof answer === 'string' ? answer.trim() : answer
-          }))
+        attempt_id: testDetails?.attemptId,
+        answers: Object.keys(answers).reduce((acc, questionId) => {
+          acc[questionId] = answers[questionId];
+          return acc;
+        }, {})
       };
-  
-      // Debug
-      console.log('Submitting:', JSON.stringify(payload, null, 2));
   
       const response = await axios.post(
         `http://127.0.0.1:8000/student/submit-test/${testId}/`,
         payload,
         {
           headers: {
-            'Authorization': `Bearer ${token}`,
+            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
-          validateStatus: (status) => status < 500, // Don't throw on 400 errors
         }
       );
   
-      if (response.data.success) {
-        navigate(`/test-result/${response.data.attempt_id}`);
-      } else {
-        throw new Error(response.data.message || 'Submission failed');
+      // Make sure response contains attempt_id
+      if (!response.data?.attempt_id) {
+        throw new Error('No attempt ID received from server');
       }
       
+      navigate(`/result-page/${response.data.attempt_id}`);
     } catch (error) {
-      const serverError = error.response?.data?.error || 
-                         error.response?.data?.detail ||
-                         error.message;
+      console.error('Full error:', error.response?.data);
       
-      console.error('Submission failed:', {
-        error: error.toString(),
-        response: error.response?.data
-      });
-      
-      alert(`Submission Error: ${serverError}`);
+      if (error.response?.status === 401) {
+        localStorage.removeItem('access_token');
+        navigate('/login');
+      } else if (error.response?.data?.error?.includes('UNIQUE constraint')) {
+        alert('You have already submitted this test. Please refresh the page.');
+      } else {
+        alert(`Submission failed: ${error.response?.data?.error || error.message}`);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -151,8 +165,13 @@ const AttemptTest = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  if (role !== 'student') {
-    return <div className="access-denied">Access restricted. Only students can attempt tests.</div>;
+  if (roleLoading) {
+    return (
+      <div className="loading-container">
+        <div className="loading-spinner"></div>
+        <p>Loading...</p>
+      </div>
+    );
   }
 
   if (loading) {
@@ -168,6 +187,7 @@ const AttemptTest = () => {
     return (
       <div className="error-container">
         <p>Error: {error}</p>
+        <button onClick={() => window.location.reload()}>Try Again</button>
       </div>
     );
   }
@@ -202,7 +222,7 @@ const AttemptTest = () => {
             {q.question_type === QUESTION_TYPES.MCQ ? (
               <div className="mcq-options">
                 {Object.entries(q.options)
-                  .filter(([key]) => key !== 'correct') // Exclude the 'correct' key
+                  .filter(([key]) => key !== 'correct')
                   .map(([key, value]) => (
                     <div key={key} className="mcq-option">
                       <input
@@ -238,9 +258,9 @@ const AttemptTest = () => {
         <button
           onClick={handleSubmit}
           className="submit-button"
-          disabled={Object.keys(answers).length === 0}
+          disabled={Object.keys(answers).length === 0 || Submitting}
         >
-          Submit Test
+          {Submitting ? 'Submitting...' : 'Submit Test'}
         </button>
         <p className="answered-count">
           Answered: {Object.keys(answers).length}/{questions.length} questions

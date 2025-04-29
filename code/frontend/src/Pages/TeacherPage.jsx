@@ -10,7 +10,7 @@ export default function TeacherPage() {
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
-  const role = useUserRole();  // Now assume it returns `null` initially while loading
+  const { role, loading: roleLoading } = useUserRole(); // Destructure properly
   const token = localStorage.getItem("access_token");
 
   useEffect(() => {
@@ -19,10 +19,8 @@ export default function TeacherPage() {
       return;
     }
 
-    if (role === null) {
-      // Still loading role, wait
-      return;
-    }
+    // Wait until role is loaded
+    if (roleLoading) return;
 
     if (role !== "teacher") {
       navigate("/login");
@@ -30,7 +28,7 @@ export default function TeacherPage() {
     }
 
     fetchTeacherSessions();
-  }, [role, navigate]);
+  }, [role, roleLoading, navigate, token]);
 
   const fetchTeacherSessions = async () => {
     try {
@@ -42,7 +40,12 @@ export default function TeacherPage() {
       setSessions(response.data);
     } catch (error) {
       console.error("Error fetching sessions:", error);
-      setError(error.response?.data?.message || "Failed to load sessions");
+      if (error.response?.status === 401) {
+        localStorage.removeItem("access_token");
+        navigate("/login");
+      } else {
+        setError(error.response?.data?.message || "Failed to load sessions");
+      }
     } finally {
       setLoadingSessions(false);
     }
@@ -52,7 +55,7 @@ export default function TeacherPage() {
     navigate('/teacher-request');
   };
 
-  if (role === null) {
+  if (roleLoading) {
     return (
       <div className="flex justify-center items-center h-screen">
         <div className="text-xl font-semibold">Loading...</div>

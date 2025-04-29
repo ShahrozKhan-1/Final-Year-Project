@@ -6,16 +6,16 @@ export default function StudentDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [sessions, setSessions] = useState([]);
-  const [sessionTests, setSessionTests] = useState({}); // Stores tests for each session
-  const [loadingTests, setLoadingTests] = useState({}); // Loading states for each session's tests
+  const [sessionTests, setSessionTests] = useState({});
+  const [loadingTests, setLoadingTests] = useState({});
   const navigate = useNavigate();
-  const role = useUserRole();
+  const { role, loading: roleLoading } = useUserRole(); // Destructure properly
+  const token = localStorage.getItem("access_token");
 
   const handleEnrollSessionClick = () => {
     navigate("/student/enroll-session");
   };
 
-  // Fetch tests for a specific session
   const fetchTestsForSession = async (sessionId) => {
     setLoadingTests(prev => ({ ...prev, [sessionId]: true }));
     try {
@@ -23,7 +23,7 @@ export default function StudentDashboard() {
         `http://127.0.0.1:8000/sessions/${sessionId}/tests/`,
         {
           headers: { 
-            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+            Authorization: `Bearer ${token}`,
           },
         }
       );
@@ -41,46 +41,61 @@ export default function StudentDashboard() {
   };
 
   useEffect(() => {
-    const token = localStorage.getItem("access_token");
     if (!token) {
       navigate("/login");
       return;
     }
 
-    if (role === "student") {
-      const fetchEnrolledSessions = async () => {
-        try {
-          const response = await fetch("http://127.0.0.1:8000/sessions/enrolled/", {
-            headers: { Authorization: `Bearer ${token}` },
-          });
+    // Wait until role is loaded
+    if (roleLoading) return;
 
-          if (!response.ok) throw new Error("Failed to fetch sessions");
-          
-          const data = await response.json();
-          setSessions(data);
-          
-          // Fetch tests for each session
-          data.forEach(session => {
-            fetchTestsForSession(session.id);
-          });
-          
-          setLoading(false);
-        } catch (err) {
-          console.error(err);
-          setError("Failed to load sessions");
-          setLoading(false);
-        }
-      };
-
-      fetchEnrolledSessions();
-    } else if (role !== null) {
+    if (role !== "student") {
       navigate("/login");
+      return;
     }
-  }, [role, navigate]);
+
+    const fetchEnrolledSessions = async () => {
+      try {
+        const response = await fetch("http://127.0.0.1:8000/sessions/enrolled/", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!response.ok) throw new Error("Failed to fetch sessions");
+        
+        const data = await response.json();
+        setSessions(data);
+        
+        // Fetch tests for each session
+        data.forEach(session => {
+          fetchTestsForSession(session.id);
+        });
+      } catch (err) {
+        console.error(err);
+        if (err.response?.status === 401) {
+          localStorage.removeItem("access_token");
+          navigate("/login");
+        } else {
+          setError("Failed to load sessions");
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchEnrolledSessions();
+  }, [role, roleLoading, navigate, token]);
 
   const handleAttemptTest = (testId) => {
     navigate(`/student/attempt-test/${testId}`);
   };
+
+  if (roleLoading) {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <div className="text-xl font-semibold">Loading...</div>
+      </div>
+    );
+  }
 
   if (loading) return <div className="p-4">Loading sessions...</div>;
   if (error) return <div className="p-4 text-red-500">{error}</div>;
@@ -109,7 +124,6 @@ export default function StudentDashboard() {
               <h3 className="font-bold text-lg mb-2">{session.name}</h3>
               <p className="text-gray-600 mb-3">{session.description}</p>
               
-              {/* Tests section */}
               <div className="mt-4 border-t pt-3">
                 <h4 className="font-semibold mb-2">Tests:</h4>
                 {loadingTests[session.id] ? (

@@ -6,7 +6,7 @@ DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"  # Verify this
 
 def evaluate_with_deepseek(prompt):
     headers = {
-        "Authorization": f"Bearer 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",
+        "Authorization": f"Bearer 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",
         "Content-Type": "application/json"
     }
     

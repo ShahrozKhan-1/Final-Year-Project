@@ -22,6 +22,7 @@ const ProtectedRoute = ({ roleRequired, children }) => {
 // Your Pages
 const StudentPage = () => <div>Student Dashboard</div>;
 const TeacherPage = () => <div>Teacher Dashboard</div>;
+const AdminPage = () => <div>Admin Dashboard</div>;
 const Login = () => <div>Login Page</div>;
 
 function App() {
@@ -42,6 +43,14 @@ function App() {
           element={
             <ProtectedRoute roleRequired="teacher">
               <TeacherPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin-panel"
+          element={
+            <ProtectedRoute roleRequired="admin">
+              <AdminPage />
             </ProtectedRoute>
           }
         />
