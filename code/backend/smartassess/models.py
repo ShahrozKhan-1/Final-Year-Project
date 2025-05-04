@@ -83,6 +83,8 @@ class Question(models.Model):
     # Common fields
     difficulty = models.CharField(max_length=10, default='Medium')
     created_at = models.DateTimeField(auto_now_add=True)
+    topic = models.CharField(max_length=100, blank=True, null=True)
+
 
     def __str__(self):
         return f"{self.get_question_type_display()}: {self.content[:50]}..."

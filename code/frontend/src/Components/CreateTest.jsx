@@ -112,7 +112,7 @@ function CreateTest() {
             Authorization: `Bearer ${token}`,
             "Content-Type": "multipart/form-data",
           },
-          timeout: 30000 // 30 second timeout
+          timeout: 60000 // 30 second timeout
         }
       );
   

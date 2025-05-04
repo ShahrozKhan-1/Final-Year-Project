@@ -2,25 +2,50 @@ import requests
 import json
 from django.conf import settings
 
-DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"  # Verify this is the correct endpoint
+DEEPSEEK_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 def evaluate_with_deepseek(prompt):
+    api_key = getattr(settings, 'DEEPSEEK_API_KEY', None)
+    if not api_key:
+        print("❌ DeepSeek API key not configured in settings.")
+        return None
+
     headers = {
-        "Authorization": f"Bearer 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",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
-    
+
     payload = {
-        "model": "deepseek-chat",  # Use the appropriate model
+        "model": "nvidia/llama-3.1-nemotron-ultra-253b-v1:free",  # or "deepseek-coder" if needed
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.7,
-        "max_tokens": 1000
+        "temperature": 0.7
     }
-    
+
     try:
-        response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload)
+        response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=20)
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+
+        print("✅ DeepSeek API raw response received.")
+        print(json.dumps(data, indent=2))
+
+        # Safe access to message content
+        choices = data.get("choices", [])
+        if choices and isinstance(choices, list):
+            message = choices[0].get("message", {})
+            content = message.get("content", "").strip()
+            if content:
+                return content
+            else:
+                print("⚠️ No 'content' in response message.")
+        else:
+            print("⚠️ Invalid or empty 'choices' in response.")
+
+    except requests.exceptions.Timeout:
+        print("⏰ DeepSeek API request timed out.")
     except requests.exceptions.RequestException as e:
-        print(f"DeepSeek API error: {e}")
-        return None
+        print(f"🚨 DeepSeek API error: {e}")
+    except json.JSONDecodeError:
+        print("🚫 Failed to parse JSON from DeepSeek API.")
+
+    return None

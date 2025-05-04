@@ -115,17 +115,40 @@ const AttemptTest = () => {
 
   const handleSubmit = async () => {
     if (Submitting) return;
-    
+  
     try {
       setSubmitting(true);
+      
+      // 1. Convert answers to array format with string IDs
+      const formattedAnswers = Object.entries(answers).map(([qid, answer]) => ({
+        question_id: String(qid),  // Convert to string to match backend
+        answer: answer
+      }));
+  
+      if (formattedAnswers.length === 0) {
+        throw new Error("No valid answers to submit");
+      }
+  
+      // 2. Prepare payload
       const payload = {
-        attempt_id: testDetails?.attemptId,
-        answers: Object.keys(answers).reduce((acc, questionId) => {
-          acc[questionId] = answers[questionId];
-          return acc;
-        }, {})
+        attempt_id: testDetails?.attemptId ? String(testDetails.attemptId) : null,
+        answers: formattedAnswers,
+        test_id: String(testId)  // Consistent string IDs
       };
   
+      console.log("Final payload with types:", {
+        ...payload,
+        types: {
+          attempt_id: typeof payload.attempt_id,
+          test_id: typeof payload.test_id,
+          answers: payload.answers.map(a => ({
+            question_id_type: typeof a.question_id,
+            answer_type: typeof a.answer
+          }))
+        }
+      });
+  
+      // 3. Submit to backend
       const response = await axios.post(
         `http://127.0.0.1:8000/student/submit-test/${testId}/`,
         payload,
@@ -134,26 +157,28 @@ const AttemptTest = () => {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
+          // timeout: 10000
         }
       );
   
-      // Make sure response contains attempt_id
       if (!response.data?.attempt_id) {
-        throw new Error('No attempt ID received from server');
+        throw new Error("Invalid server response");
       }
-      
+  
       navigate(`/result-page/${response.data.attempt_id}`);
+  
     } catch (error) {
-      console.error('Full error:', error.response?.data);
-      
-      if (error.response?.status === 401) {
-        localStorage.removeItem('access_token');
-        navigate('/login');
-      } else if (error.response?.data?.error?.includes('UNIQUE constraint')) {
-        alert('You have already submitted this test. Please refresh the page.');
-      } else {
-        alert(`Submission failed: ${error.response?.data?.error || error.message}`);
-      }
+      console.error("Complete error details:", {
+        message: error.message,
+        response: error.response?.data,
+        config: error.config
+      });
+  
+      alert(
+        error.response?.data?.error ||
+        error.message ||
+        "Submission failed. Please try again."
+      );
     } finally {
       setSubmitting(false);
     }

@@ -9,3 +9,6 @@ python-docx
 openai
 python-dotenv
 aiohttp
+python-decouple
+yt-dlp
+beautifulsoup4

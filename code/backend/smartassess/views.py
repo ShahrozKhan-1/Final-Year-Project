@@ -1,4 +1,5 @@
 from django.shortcuts import render
+from django.conf import settings
 from .models import * 
 from .serializers import *
 from rest_framework.decorators import api_view, permission_classes, APIView
@@ -16,18 +17,21 @@ from django.contrib.auth import get_user_model
 from rest_framework.permissions import BasePermission
 from django.shortcuts import get_object_or_404
 from rest_framework.parsers import MultiPartParser, FormParser
+from bs4 import BeautifulSoup
+import yt_dlp
 from django.core.files.storage import default_storage
 import fitz  # PyMuPDF for PDF
 from rest_framework.generics import RetrieveAPIView
 import docx 
 import requests
 import json
+import re
 import random
 from openai import OpenAI
 import logging
-from django.conf import settings
 import asyncio
 from utils.deepseek import evaluate_with_deepseek
+from django.db import transaction
 import time
 import aiohttp
 import traceback
@@ -216,251 +220,278 @@ class CreateTestView(APIView):
         return Response(serializer.errors, status=400)
 
 
+
 class GenerateQuestionsView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
-        print("\n=== Received request ===")
-        print("Headers:", request.headers)
-        print("Data:", request.data)
-        print("Files:", bool(request.FILES.get('file')))
-        
         try:
-            prompt_text = request.data.get('prompt_text', '')
+            # Parse and validate input
+            prompt = request.data.get('prompt_text', '')
             mode = request.data.get('mode', '')
             difficulty = request.data.get('difficulty', 'medium')
             file = request.FILES.get('file', None)
             test_id = request.data.get('test_id')
-            mcq_count = int(request.data.get('mcq_count', 0))
-            qna_count = int(request.data.get('qna_count', 0))
+            mcq_count = min(int(request.data.get('mcq_count', 0)), 20)
+            qna_count = min(int(request.data.get('qna_count', 0)), 20)
 
-            print(f"Generating {mcq_count} MCQs and {qna_count} QNAs")
-        except (ValueError, TypeError):
+            if mcq_count + qna_count == 0:
+                return Response(
+                    {"error": "At least one question type must be requested"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Process input (text, file, or URL)
+            if file:
+                prompt = self.process_file(file)
+            elif prompt.startswith(('http://', 'https://')):
+                prompt = self.process_url(prompt)
+
+            # Generate questions
+            questions = self.generate_questions(prompt, difficulty, mcq_count, qna_count)
+            
+            # Save to database if in teacher mode
+            if mode == "teacher" and test_id:
+                self.save_questions(test_id, request.user, questions)
+
             return Response({
-                "questions": generated_questions,
-                "message": "Questions generated successfully"
+                "questions": questions,
+                "message": f"Generated {len(questions)} questions successfully"
             })
+
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            print(f"Error in GenerateQuestionsView: {str(e)}")
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Validate at least one question type requested
-        if mcq_count + qna_count == 0:
-            return Response(
-                {"error": "At least one question type must be requested"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Handle file upload if present
-        if file:
-            try:
-                file_name = default_storage.save(file.name, file)
-                file_path = default_storage.path(file_name)
-                prompt_text = self.extract_text_from_file(file_path, file.name)
-            except Exception as e:
-                return Response(
-                    {"error": f"File processing error: {str(e)}"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-
-        # Generate questions
-        generated_questions = []
+    def process_file(self, file):
+        """Process uploaded file"""
+        file_name = default_storage.save(file.name, file)
+        file_path = default_storage.path(file_name)
         
-        if mcq_count > 0:
-            mcqs = self.generate_mcqs(prompt_text, difficulty, mcq_count)
-            if not mcqs:
-                return Response(
-                    {"error": "Failed to generate MCQs"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-            generated_questions.extend(mcqs)
-
-        if qna_count > 0:
-            qnas = self.generate_qnas(prompt_text, difficulty, qna_count)
-            if not qnas:
-                return Response(
-                    {"error": "Failed to generate QNAs"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-            generated_questions.extend(qnas)
-
-        # Save to database in teacher mode
-        if mode == "teacher":
-            if not test_id:
-                return Response(
-                    {"error": "Test ID is required for teacher mode"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            try:
-                test = Test.objects.get(id=test_id, teacher=request.user)
-                for question in generated_questions:
-                    Question.objects.create(
-                        test=test,
-                        teacher=request.user,
-                        **question
-                    )
-            except Test.DoesNotExist:
-                return Response(
-                    {"error": "Invalid test ID or you are not the owner"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            except Exception as e:
-                return Response(
-                    {"error": f"Database error: {str(e)}"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-
-        return Response({"questions": generated_questions})
-
-    def generate_mcqs(self, prompt, difficulty, count):
-        """Generate multiple choice questions"""
-        generated = self.query_deepseek(prompt, difficulty, "mcq", count)
-        if not generated:
-            # Fallback if API fails
-            return [{
-                'question_type': 'MCQ',
-                'content': f'Sample MCQ {i+1} about {prompt[:20]}...',
-                'option_a': f'Option A for Q{i+1}',
-                'option_b': f'Option B for Q{i+1}',
-                'option_c': f'Option C for Q{i+1}',
-                'option_d': f'Option D for Q{i+1}',
-                'correct_option': random.choice(['A','B','C','D']),
-                'difficulty': difficulty
-            } for i in range(count)]
-        return generated
-
-    def generate_qnas(self, prompt, difficulty, count):
-        """Generate open-ended questions"""
-        generated = self.query_deepseek(prompt, difficulty, "qna", count)
-
-        if not generated:
-            return [{
-                'question_type': 'QNA',
-                'content': f'Explain {prompt[:30]}... (Q{i+1})',
-                'difficulty': difficulty
-            } for i in range(count)]
-
-        # 🔥 FIX: Add `question_type` and `difficulty` to each generated QNA
-        for q in generated:
-            q['question_type'] = 'QNA'
-        q['difficulty'] = difficulty
-
-        return generated
-
-    def query_deepseek(self, prompt, difficulty, question_type, count):
-        """Call DeepSeek API to generate questions"""
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        api_key = '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' # Replace with your actual key
-
-        instructions = {
-            "mcq": (
-                "You are to generate {count} {difficulty} multiple-choice questions (MCQs). "
-                "Each question should include:\n"
-                "- 'content': the question text\n"
-                "- 'option_a', 'option_b', 'option_c', 'option_d': the answer choices\n"
-                "- 'correct_option': one of 'A', 'B', 'C', or 'D' (the correct answer)\n"
-                "Format the output strictly as JSON in this structure:\n"
-                '{{ "questions": [ {{ "content": "...", "option_a": "...", "option_b": "...", '
-                '"option_c": "...", "option_d": "...", "correct_option": "A" }} ] }}'
-            ),
-            "qna": (
-                "You are to generate {count} {difficulty} open-ended questions. "
-                "Return only the question texts as JSON in this format:\n"
-                '{{ "questions": [ {{ "content": "..." }} ] }}'
-            )
-        }
-
-
-        messages = [{
-            "role": "user",
-            "content": instructions[question_type].format(
-                count=count,
-                difficulty=difficulty
-            ) + f"\n\nBase the questions on this content:\n\"{prompt}\"\n\nReturn only valid JSON."
-        }]
-
-
         try:
-            response = requests.post(
-                url,
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "model": "deepseek/deepseek-chat:free",
-                    "messages": messages,
-                    "response_format": {"type": "json_object"}
-                },
-                # timeout=20
-            )
-            response.raise_for_status()
+            if file.name.endswith(".pdf"):
+                with fitz.open(file_path) as doc:
+                    return " ".join(page.get_text() for page in doc)
+            elif file.name.endswith(".docx"):
+                doc = docx.Document(file_path)
+                return " ".join(para.text for para in doc.paragraphs)
+            elif file.name.endswith(".txt"):
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            else:
+                raise ValueError("Unsupported file format")
+        finally:
+            default_storage.delete(file_name)
+
+    def process_url(self, url):
+        """Process URL (YouTube or webpage)"""
+        if 'youtube.com' in url or 'youtu.be' in url:
+            return self.process_youtube(url)
+        return self.process_webpage(url)
+
+    def process_youtube(self, url):
+        """Extract YouTube video transcript"""
+        try:
+            ydl_opts = {
+                'quiet': True,
+                'skip_download': True,
+                'writesubtitles': True,
+                'subtitleslangs': ['en'],
+                'subtitlesformat': 'vtt'
+            }
             
-            content = response.json()['choices'][0]['message']['content']
-            if content.startswith('```json'):
-                content = content.split('```json')[1].split('```')[0].strip()
-            
-            data = json.loads(content)
-            return data.get('questions', [])
-            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                if 'subtitles' in info and info['subtitles']:
+                    return '\n'.join(sub['data'] for sub in info['subtitles'].get('en', []))
+                return info.get('description', '') + ' ' + info.get('title', '')
         except Exception as e:
-            print(f"API Error: {str(e)}")
+            raise ValueError(f"Couldn't process YouTube video: {str(e)}")
+
+    def process_webpage(self, url):
+        """Extract main content from webpage"""
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            response = requests.get(url, headers=headers, timeout=10)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Remove unwanted elements
+            for element in soup(['script', 'style', 'nav', 'footer']):
+                element.decompose()
+                
+            return ' '.join(soup.stripped_strings)
+        except Exception as e:
+            raise ValueError(f"Couldn't process webpage: {str(e)}")
+
+    def generate_questions(self, prompt, difficulty, mcq_count, qna_count):
+        """Generate questions in optimized batch"""
+        if mcq_count + qna_count == 0:
             return []
         
-    def parse_text_mcqs(self, text):
-        """Convert text format MCQs to structured format"""
+        # Try batch generation first
+        try:
+            batch_response = self.generate_batch(prompt, difficulty, mcq_count, qna_count)
+            if batch_response:
+                return batch_response
+        except Exception as e:
+            print(f"Batch generation failed: {str(e)}")
+        
+        # Fallback to sequential if batch fails
         questions = []
-        current_question = {}
+        if mcq_count > 0:
+            questions.extend(self.generate_mcqs(prompt, difficulty, mcq_count))
+        if qna_count > 0:
+            questions.extend(self.generate_qnas(prompt, difficulty, qna_count))
+        return questions
 
-        for line in text.split('\n'):
-            line = line.strip()
-            if not line:
-                continue
-                
-            if line.endswith('...'):  # Question line
-                if current_question:
-                    questions.append(current_question)
-                current_question = {
-                    'content': line,
-                    'option_a': '',
-                    'option_b': '',
-                    'option_c': '',
-                    'option_d': '',
-                    'correct_option': 'A'  # Default
-                }
-            elif line.startswith('A:'):
-                current_question['option_a'] = line[2:].strip()
-            elif line.startswith('B:'):
-                current_question['option_b'] = line[2:].strip()
-            elif line.startswith('C:'):
-                current_question['option_c'] = line[2:].strip()
-            elif line.startswith('D:'):
-                current_question['option_d'] = line[2:].strip()
+    def generate_batch(self, prompt, difficulty, mcq_count, qna_count):
+        """Generate all questions in one API call"""
+        prompt_template = f"""Generate a quiz with these requirements:
+- Topic: {prompt}
+- Difficulty: {difficulty}
+- {mcq_count} MCQs (with 4 options each and correct answer)
+- {qna_count} open-ended questions
 
-        if current_question:
-            questions.append(current_question)
+Return STRICT JSON format:
+{{
+    "mcqs": [{{"content": "...", "option_a": "...", "option_b": "...", 
+              "option_c": "...", "option_d": "...", "correct_option": "A"}}],
+    "qnas": [{{"content": "..."}}]
+}}"""
+        
+        response = evaluate_with_deepseek(prompt_template)
+        if not response:
+            return None
+            
+        # Clean and parse response
+        content = response.strip()
+        if content.startswith('```json'):
+            content = content[7:-3].strip()
+        elif content.startswith('```'):
+            content = content[3:-3].strip()
+            
+        data = json.loads(content)
+        
+        # Format questions
+        questions = []
+        for mcq in data.get('mcqs', [])[:mcq_count]:
+            mcq.update({
+                'question_type': 'MCQ',
+                'difficulty': difficulty
+            })
+            questions.append(mcq)
+            
+        for qna in data.get('qnas', [])[:qna_count]:
+            qna.update({
+                'question_type': 'QNA',
+                'difficulty': difficulty
+            })
+            questions.append(qna)
             
         return questions
 
-    def extract_text_from_file(self, file_path, filename):
-        """Extract text from uploaded file"""
-        if filename.endswith(".pdf"):
-            text = ""
-            with fitz.open(file_path) as doc:
-                for page in doc:
-                    text += page.get_text()
-            return text
-        elif filename.endswith(".docx"):
-            doc = docx.Document(file_path)
-            return "\n".join([para.text for para in doc.paragraphs])
-        elif filename.endswith(".txt"):
-            with open(file_path, 'r', encoding='utf-8') as f:
-                return f.read()
-        else:
-            raise ValueError("Unsupported file format")
+    def generate_mcqs(self, prompt, difficulty, count):
+        """Generate multiple choice questions"""
+        prompt_template = f"""Generate {count} {difficulty} MCQs about:
+{prompt}
 
+For each provide:
+1. Question text
+2. 4 options (A-D)
+3. Correct answer
+
+Return STRICT JSON format:
+{{
+    "questions": [
+        {{
+            "content": "...",
+            "option_a": "...",
+            "option_b": "...",
+            "option_c": "...",
+            "option_d": "...",
+            "correct_option": "A"
+        }}
+    ]
+}}"""
+        
+        response = evaluate_with_deepseek(prompt_template)
+        if not response:
+            return self.fallback_mcqs(prompt, difficulty, count)
+            
+        try:
+            data = json.loads(response.strip().strip('```').strip())
+            return [{
+                **q,
+                'question_type': 'MCQ',
+                'difficulty': difficulty
+            } for q in data.get('questions', [])]
+        except Exception:
+            return self.fallback_mcqs(prompt, difficulty, count)
+
+    def generate_qnas(self, prompt, difficulty, count):
+        """Generate open-ended questions"""
+        prompt_template = f"""Generate {count} {difficulty} open-ended questions about:
+{prompt}
+
+Return STRICT JSON format:
+{{
+    "questions": [
+        {{"content": "..."}}
+    ]
+}}"""
+        
+        response = evaluate_with_deepseek(prompt_template)
+        if not response:
+            return self.fallback_qnas(prompt, difficulty, count)
+            
+        try:
+            data = json.loads(response.strip().strip('```').strip())
+            return [{
+                'content': q['content'],
+                'question_type': 'QNA',
+                'difficulty': difficulty
+            } for q in data.get('questions', [])]
+        except Exception:
+            return self.fallback_qnas(prompt, difficulty, count)
+
+    def fallback_mcqs(self, prompt, difficulty, count):
+        """Fallback MCQ generation"""
+        return [{
+            'question_type': 'MCQ',
+            'content': f'MCQ about {prompt[:50]} (Q{i+1})',
+            'option_a': f'Option A for Q{i+1}',
+            'option_b': f'Option B for Q{i+1}',
+            'option_c': f'Option C for Q{i+1}',
+            'option_d': f'Option D for Q{i+1}',
+            'correct_option': random.choice(['A','B','C','D']),
+            'difficulty': difficulty
+        } for i in range(count)]
+
+    def fallback_qnas(self, prompt, difficulty, count):
+        """Fallback QNA generation"""
+        return [{
+            'question_type': 'QNA',
+            'content': f'Explain {prompt[:50]} (Q{i+1})',
+            'difficulty': difficulty
+        } for i in range(count)]
+
+    def save_questions(self, test_id, teacher, questions):
+        """Save questions to database"""
+        try:
+            test = Test.objects.get(id=test_id, teacher=teacher)
+            Question.objects.bulk_create([
+                Question(
+                    test=test,
+                    teacher=teacher,
+                    **question
+                ) for question in questions
+            ])
+        except Test.DoesNotExist:
+            raise ValueError("Invalid test ID or you are not the owner")
+        except Exception as e:
+            raise Exception(f"Failed to save questions: {str(e)}")
 
 class SaveQuizView(APIView):
     permission_classes = [IsAuthenticated]
@@ -665,179 +696,218 @@ def get_test_for_attempt(request, test_id):
 
 
 class SubmitTestView(APIView):
+    permission_classes = [IsAuthenticated]
+
     def post(self, request, test_id, format=None):
-        """
-        Submit test answers and get detailed results
-        Returns:
-        - Detailed question-by-question results
-        - Student answers vs correct answers
-        - AI-generated improvement suggestions
-        """
         try:
-            # Check if test already submitted
-            if TestAttempt.objects.filter(
-                student=request.user,
-                test_id=test_id,
-                is_submitted=True
-            ).exists():
+            print("Received data:", request.data)
+            attempt = self._get_or_create_attempt(request.user, test_id)
+
+            if attempt.is_submitted:
                 return Response(
-                    {"error": "You have already submitted this test"},
+                    {"error": "You have already submitted this test."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            # Process and validate answers
-            raw_answers = request.data.get('answers', {})
-            answers = self.normalize_answers(raw_answers)
-            
-            validation_error = self.validate_answers(test_id, answers)
-            if validation_error:
-                return validation_error
+            answers = self._normalize_answers(request.data.get("answers", {}))
+            if not answers:
+                return Response({"error": "No answers provided."}, status=400)
 
-            # Create or update attempt
-            attempt = self.create_or_update_attempt(request.user, test_id)
-            
-            # Process and evaluate answers
-            results = self.process_answers(attempt, answers)
-            
-            # Finalize attempt results
-            self.finalize_attempt(attempt, results)
-            
-            # Generate detailed response
-            response_data = self.generate_response_data(attempt, results)
-            
-            return Response(
-                response_data,
-                status=status.HTTP_201_CREATED
-            )
+            evaluation = self._evaluate_answers(answers, attempt)
+            self._finalize_attempt(attempt, evaluation)
+
+            return Response(self._format_results(attempt, evaluation), status=201)
 
         except Exception as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            print("Error in SubmitTestView:", str(e))
+            return Response({"error": str(e)}, status=500)
 
-    def generate_response_data(self, attempt, results):
-        """Generate comprehensive response with detailed results"""
-        questions_data = []
-        student_answers = StudentAnswer.objects.filter(attempt=attempt)
-        
-        for answer in student_answers:
-            question = answer.question
-            questions_data.append({
-                "question_id": question.id,
-                "content": question.content,
-                "question_type": question.question_type,
-                "student_answer": answer.answer_text,
-                "correct_answer": question.correct_option if question.question_type == 'MCQ' else None,
-                "is_correct": answer.is_correct,
-                "feedback": answer.ai_feedback,
-                "marks": question.marks,
-                "marks_awarded": question.marks if answer.is_correct else 0
+    def _normalize_answers(self, answers):
+        if isinstance(answers, list):
+            return {str(ans.get('question_id')): ans.get('answer') for ans in answers if 'question_id' in ans and 'answer' in ans}
+        elif isinstance(answers, dict):
+            return {str(k): v for k, v in answers.items()}
+        return {}
+
+    def _get_or_create_attempt(self, user, test_id):
+        test = get_object_or_404(Test, pk=test_id)
+        total_questions = test.questions.count()
+        attempt, _ = TestAttempt.objects.get_or_create(
+            student=user,
+            test_id=test_id,
+            defaults={
+                'start_time': timezone.now(),
+                'is_submitted': False,
+                'total_questions': total_questions
+            }
+        )
+        return attempt
+
+    def _evaluate_answers(self, answers, attempt):
+        question_ids = [int(qid) for qid in answers.keys()]
+        questions = Question.objects.filter(id__in=question_ids, test_id=attempt.test_id).in_bulk(field_name='id')
+
+        evaluation_data = []
+        for qid in question_ids:
+            if qid not in questions:
+                raise ValueError(f"Invalid question ID: {qid}")
+            question = questions[qid]
+            student_answer = answers[str(qid)]
+            evaluation_data.append({
+                'question_id': qid,
+                'content': question.content,
+                'student_answer': student_answer,
+                'type': question.question_type,
+                'correct_option': question.correct_option,
             })
-        
-        return {
-            "attempt_id": attempt.id,
-            "score": attempt.score,
-            "correct_answers": attempt.correct_answers,
-            "total_questions": attempt.total_questions,
-            "content": question.content,
-            "questions": questions_data,
-            "suggested_topics": self.generate_ai_suggestions(attempt),
-            "feedback": attempt.ai_feedback,
-            "redirect_url": f"/student/test-result/{attempt.id}/"
-        }
 
-    def generate_ai_suggestions(self, attempt):
-        """Generate AI-powered improvement suggestions"""
-        try:
-            # Get all incorrect answers
-            incorrect_answers = StudentAnswer.objects.filter(
+        evaluations = self._evaluate_with_ai(evaluation_data)
+
+        correct_count = 0
+        weak_topics = set()
+        question_results = []
+
+        for eval in evaluations:
+            qid = int(eval['question_id'])
+            question = questions[qid]
+
+            is_correct = eval.get('is_correct', False)
+            feedback = eval.get('feedback', "")
+            weak_topics.update(eval.get('weak_topics', []))
+            model_answer = eval.get('model_answer')
+
+            if is_correct:
+                correct_count += 1
+
+            StudentAnswer.objects.update_or_create(
                 attempt=attempt,
-                is_correct=False
-            ).select_related('question')
-            
-            if not incorrect_answers.exists():
-                return []
-            
-            # Prepare context for AI analysis
-            context = "\n".join(
-                f"Question: {a.question.content}\n"
-                f"Student Answer: {a.answer_text}\n"
-                f"Correct Answer: {a.question.correct_option if a.question.question_type == 'MCQ' else 'N/A'}\n"
-                for a in incorrect_answers
-            )
-            
-            # Call DeepSeek AI API (implementation depends on your AI setup)
-            ai_response = self.call_deepseek_ai(
-                f"Analyze these test answers and suggest improvement topics:\n{context}"
-            )
-            
-            # Parse AI response (example implementation)
-            return self.parse_ai_suggestions(ai_response)
-            
-        except Exception as e:
-            print(f"Error generating AI suggestions: {str(e)}")
-            return []
-
-    def call_deepseek_ai(self, prompt):
-        """Call DeepSeek AI API (placeholder - implement according to your AI setup)"""
-        # This is a placeholder - implement actual API call
-        # Example implementation might use requests.post() to your AI endpoint
-        return {
-            "suggestions": [
-                {
-                    "topic": "React Components",
-                    "reason": "Missed questions about component lifecycle",
-                    "resources": ["React Docs - Components", "Video Tutorial #123"]
+                question=question,
+                defaults={
+                    'answer_text': answers[str(qid)],
+                    'is_correct': is_correct,
+                    'ai_feedback': feedback,
+                    'suggested_topics': ", ".join(eval.get('weak_topics', [])) if eval.get('weak_topics') else None
                 }
-            ]
+            )
+
+            question_results.append({
+                'question_id': qid,
+                'student_answer': answers[str(qid)],
+                'is_correct': is_correct,
+                'feedback': feedback,
+                'model_answer': model_answer
+            })
+
+        score = round((correct_count / len(questions)) * 100, 2) if questions else 0.0
+        return {
+            'score': score,
+            'correct_count': correct_count,
+            'total_questions': len(questions),
+            'weak_topics': list(weak_topics),
+            'question_results': question_results
         }
 
-    def parse_ai_suggestions(self, ai_response):
-        """Parse AI response into structured suggestions"""
-        try:
-            return [
-                {
-                    "topic": suggestion.get("topic", ""),
-                    "reason": suggestion.get("reason", ""),
-                    "resources": suggestion.get("resources", [])
-                }
-                for suggestion in ai_response.get("suggestions", [])
-            ]
-        except Exception as e:
-            print(f"Error parsing AI suggestions: {str(e)}")
-            return []
+    def _evaluate_with_ai(self, evaluation_data):
+        if not evaluation_data:
+            raise ValueError("No data to evaluate")
 
-    # ... (keep all your existing methods: normalize_answers, validate_answers, 
-    # create_or_update_attempt, process_answers, evaluate_answer, evaluate_qna_answer, 
-    # finalize_attempt, generate_feedback)
+        prompt = """Evaluate all test answers and provide corrections where needed.
+For MCQs, indicate if the answer is correct. If incorrect, specify the correct option.
+For QNAs, provide brief feedback on accuracy and suggested improvements.
 
-    def evaluate_qna_answer(self, question, answer_text):
-        """Enhanced QNA evaluation with AI feedback"""
+Return JSON:
+{
+    "evaluations": [
+        {
+            "question_id": "id",
+            "is_correct": boolean,
+            "feedback": "string",
+            "weak_topics": ["list"],
+            "model_answer": "string" (for QNAs only)
+        }
+    ]
+}
+
+Questions:\n""" + json.dumps(evaluation_data, indent=2)
+
         try:
-            # Call DeepSeek AI for evaluation
-            ai_response = self.call_deepseek_ai(
-                f"Evaluate this answer for the question '{question.content}':\n"
-                f"{answer_text}\n\n"
-                f"Provide feedback and mark out of {question.marks}."
-            )
-            
-            # Parse AI response (example implementation)
-            return {
-                'is_correct': ai_response.get('is_correct', False),
-                'feedback': ai_response.get('feedback', 'No feedback provided'),
-                'weak_topics': ai_response.get('weak_topics', []),
-                'marks_awarded': ai_response.get('marks_awarded', 0)
-            }
+            ai_response = evaluate_with_deepseek(prompt)
+            if not ai_response:
+                raise ValueError("Empty AI response")
+            ai_response = ai_response.strip()
+            if ai_response.startswith('```json'):
+                ai_response = ai_response[7:-3].strip()
+            elif ai_response.startswith('```'):
+                ai_response = ai_response[3:-3].strip()
+
+            parsed = json.loads(ai_response)
+            return parsed.get("evaluations", [])
         except Exception as e:
-            print(f"AI evaluation error: {str(e)}")
-            return {
-                'is_correct': False,
-                'feedback': 'Could not evaluate answer',
+            print(f"AI failed: {e}")
+            return self._simple_fallback_evaluation(evaluation_data)
+
+    def _simple_fallback_evaluation(self, evaluation_data):
+        evaluations = []
+        for item in evaluation_data:
+            if item['type'] == 'MCQ':
+                is_correct = item['student_answer'].strip().upper() == item['correct_option']
+                feedback = "Correct" if is_correct else f"Correct answer: {item['correct_option']}"
+            else:
+                is_correct = False
+                feedback = "Subjective question - AI feedback not available"
+            evaluations.append({
+                'question_id': item['question_id'],
+                'is_correct': is_correct,
+                'feedback': feedback,
                 'weak_topics': [],
-                'marks_awarded': 0
-            }
+                'model_answer': None
+            })
+        return evaluations
 
+    def _finalize_attempt(self, attempt, evaluation):
+        attempt.score = evaluation['score']
+        attempt.correct_answers = evaluation['correct_count']
+        attempt.total_questions = evaluation['total_questions']
+        attempt.end_time = timezone.now()
+        attempt.is_submitted = True
+        attempt.ai_feedback = self._generate_ai_feedback(evaluation)
+        attempt.suggested_topics = ", ".join(evaluation['weak_topics'])
+        attempt.save()
+
+    def _generate_ai_feedback(self, evaluation):
+        if not evaluation['weak_topics']:
+            return f"Score: {evaluation['score']}% - Great job!"
+
+        prompt = f"""Generate a 2-3 sentence feedback for the following test result:
+- Score: {evaluation['score']}%
+- Correct Answers: {evaluation['correct_count']}/{evaluation['total_questions']}
+- Weak Topics: {', '.join(evaluation['weak_topics'])}
+
+Feedback:"""
+        try:
+            return evaluate_with_deepseek(prompt).strip()
+        except:
+            return f"Score: {evaluation['score']}%. Focus on: {', '.join(evaluation['weak_topics'])}"
+
+    def _format_results(self, attempt, evaluation):
+        return {
+            'attempt_id': attempt.id,
+            'test_id': attempt.test_id,
+            'student': attempt.student.username,
+            'score': evaluation['score'],
+            'correct_answers': evaluation['correct_count'],
+            'total_questions': evaluation['total_questions'],
+            'marks': {
+                'obtained': evaluation['correct_count'],
+                'total': evaluation['total_questions']
+            },
+            'weak_topics': evaluation['weak_topics'],
+            'feedback': attempt.ai_feedback,
+            'questions': evaluation['question_results'],
+            'submitted_at': attempt.end_time
+        }
+
+        
 class PracticeGenerateQuestionsView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
@@ -896,7 +966,7 @@ class PracticeGenerateQuestionsView(APIView):
 
     def query_deepseek(self, prompt, difficulty, question_type, count):
         url = "https://openrouter.ai/api/v1/chat/completions"
-        api_key = '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'
+        api_key = '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'
 
         instruction = {
             "mcq": (
@@ -1180,14 +1250,47 @@ class TestResultView(APIView):
                     status=status.HTTP_403_FORBIDDEN
                 )
             
+            student_answers = StudentAnswer.objects.filter(attempt=attempt).select_related('question')
+
+            question_results = []
+            weak_topics_set = set()
+
+            for sa in student_answers:
+                weak_topics = sa.suggested_topics.split(",") if sa.suggested_topics else []
+                weak_topics_set.update([topic.strip() for topic in weak_topics if topic.strip()])
+                question_results.append({
+                    'question_id': sa.question.id,
+                    'content': sa.question.content,
+                    'questionType': sa.question.question_type,
+                    'options': {
+                        'A': sa.question.option_a,
+                        'B': sa.question.option_b,
+                        'C': sa.question.option_c,
+                        'D': sa.question.option_d
+                    } if sa.question.question_type == "MCQ" else None,
+                    'student_answer': sa.answer_text,
+                    'is_correct': sa.is_correct,
+                    'feedback': sa.ai_feedback,
+                })
+
+
             return Response({
+                "attempt_id": attempt.id,
+                "test_id": attempt.test_id,
+                "student": attempt.student.username,
                 "score": attempt.score,
                 "correct_answers": attempt.correct_answers,
                 "total_questions": attempt.total_questions,
+                "marks": {
+                    "obtained": attempt.correct_answers,
+                    "total": attempt.total_questions
+                },
+                "weak_topics": list(weak_topics_set),
                 "feedback": attempt.ai_feedback,
-                "suggested_topics": attempt.suggested_topics or []
+                "questions": question_results,
+                "submitted_at": attempt.end_time
             })
-            
+
         except TestAttempt.DoesNotExist:
             return Response(
                 {"error": "Test results not found"},
@@ -1195,114 +1298,3 @@ class TestResultView(APIView):
             )
             
 
-
-class TestResultEvaluator(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, attempt_id):
-        attempt = get_object_or_404(TestAttempt, id=attempt_id, student=request.user)
-        answers = attempt.answers.select_related("question").all()
-
-        total = answers.count()
-        correct = 0
-        topic_set = set()
-        result_list = []
-
-        for answer in answers:
-            question = answer.question
-            student_response = answer.answer_text.strip()
-            is_correct = False
-            ai_feedback = None
-            suggested_topic = None
-
-            # Prepare prompt for DeepSeek (MCQ + QNA)
-            if question.question_type == "MCQ":
-                prompt = f"""
-You are an AI teacher. Evaluate the following MCQ and check if the student's answer is correct.
-
-Question: {question.content}
-Options:
-A. {question.option_a}
-B. {question.option_b}
-C. {question.option_c}
-D. {question.option_d}
-
-Correct Option: {question.correct_option}
-Student Answer: {student_response}
-
-Respond in JSON format like:
-{{
-  "is_correct": true,
-  "feedback": "Well done!",
-  "suggested_topic": null
-}}
-"""
-            else:
-                prompt = f"""
-You are an AI teacher grading a student's written answer.
-
-Question: {question.content}
-Student Answer: {student_response}
-
-Respond in JSON format like:
-{{
-  "is_correct": true,
-  "feedback": "You mentioned the right points but missed the explanation about X.",
-  "suggested_topic": "X"
-}}
-"""
-
-            # Evaluate via DeepSeek
-            result = evaluate_with_deepseek(prompt)
-
-            try:
-                parsed = json.loads(result['choices'][0]['message']['content'])
-                is_correct = parsed.get("is_correct", False)
-                ai_feedback = parsed.get("feedback", "No feedback")
-                suggested_topic = parsed.get("suggested_topic")
-                if suggested_topic:
-                    topic_set.add(suggested_topic)
-            except Exception as e:
-                is_correct = False
-                ai_feedback = "AI evaluation failed."
-                suggested_topic = None
-                print("Parsing error:", e)
-
-            # Save to DB
-            answer.is_correct = is_correct
-            answer.ai_feedback = ai_feedback
-            answer.suggested_topics = [suggested_topic] if suggested_topic else []
-            answer.save()
-
-            if is_correct:
-                correct += 1
-
-            result_list.append({
-                "question_id": question.id,
-                "question": question.content,
-                "question_type": question.question_type,
-                "student_answer": student_response,
-                "correct_option": question.correct_option if question.question_type == "MCQ" else None,
-                "is_correct": is_correct,
-                "feedback": ai_feedback,
-                "suggested_topic": suggested_topic
-            })
-
-        # Final attempt stats
-        score = round((correct / total) * 100, 2)
-        attempt.score = score
-        attempt.correct_answers = correct
-        attempt.total_questions = total
-        attempt.ai_feedback = f"You scored {score}%. Recommended focus: {', '.join(topic_set) if topic_set else 'None'}"
-        attempt.suggested_topics = list(topic_set)
-        attempt.is_submitted = True
-        attempt.save()
-
-        return Response({
-            "score": score,
-            "correct_answers": correct,
-            "total_questions": total,
-            "feedback": attempt.ai_feedback,
-            "suggested_topics": list(topic_set),
-            "questions": result_list
-        })
