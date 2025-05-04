@@ -55,6 +55,11 @@ export default function TeacherPage() {
     navigate('/teacher-request');
   };
 
+
+  const goToSession = (sessionId) => {
+    navigate(`/teacher/session/${sessionId}/tests`);
+  };
+
   if (roleLoading) {
     return (
       <div className="flex justify-center items-center h-screen">
@@ -117,12 +122,9 @@ export default function TeacherPage() {
             <div key={session.id} className="border p-4 rounded-lg shadow hover:shadow-md transition">
               <h3 className="font-bold text-lg">{session.session_name}</h3>
               <p className="text-gray-600 mb-3">{session.description}</p>
-              <button
-                onClick={() => navigate(`/create-test/${session.id}`)}
-                className="w-full bg-purple-600 text-white px-3 py-1 rounded text-sm hover:bg-purple-700"
-              >
-                Create Test
-              </button>
+              <button onClick={() => goToSession(session.id)}>View Tests</button>
+
+
             </div>
           ))}
         </div>

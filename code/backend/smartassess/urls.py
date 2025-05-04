@@ -24,5 +24,8 @@ urlpatterns = [
     path('practice/generate-questions/', PracticeGenerateQuestionsView.as_view()),
     path("practice/check/", PracticeCheckView.as_view(), name="practice-check"),
     path('student/test-result/<int:attempt_id>/', TestResultView.as_view(), name='test-result'),
-    
+    path("teacher/session/<int:session_id>/tests/", TeacherSessionTestsView.as_view(), name="session-tests"),
+    path('teacher-tests/', TeacherTestListView.as_view(), name='teacher-tests'),
+    path('api/tests/<int:test_id>/', TestDetailView.as_view(), name='test-detail'),
+
 ]

@@ -1297,4 +1297,78 @@ class TestResultView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
             
+class TeacherSessionTestsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, session_id):
+        if request.user.role != "teacher":
+            return Response({"error": "Unauthorized"}, status=403)
+
+        session = get_object_or_404(Session, id=session_id, teacher=request.user)
+        serializer = SessionWithTestsSerializer(session)
+        return Response(serializer.data)
+    
+class TeacherTestListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        tests = Test.objects.filter(teacher=request.user)
+        serializer = TestSerializer(tests, many=True)
+        return Response(serializer.data)
+
+
+
+class TestDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, test_id):
+        test = get_object_or_404(Test, id=test_id)
+        serializer = TestSerializer(test)
+        return Response(serializer.data)
+
+    def patch(self, request, test_id):
+        test = get_object_or_404(Test, id=test_id)
+
+        if request.user != test.teacher:
+            return Response({'error': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+
+        # Handle question updates
+        updated_questions = request.data.get('questions', [])
+        deleted_question_ids = request.data.get('delete_questions', [])
+        new_questions = request.data.get('new_questions', [])
+
+        # Update existing questions
+        for q_data in updated_questions:
+            question_id = q_data.get('id')
+            if not question_id:
+                continue
+            try:
+                question = test.questions.get(id=question_id)
+            except Question.DoesNotExist:
+                continue
+            serializer = QuestionSerializer(question, data=q_data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+            else:
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # Delete specified questions
+        for qid in deleted_question_ids:
+            try:
+                question = test.questions.get(id=qid)
+                question.delete()
+            except Question.DoesNotExist:
+                continue
+
+        # Create new questions
+        for q_data in new_questions:
+            q_data['test'] = test.id
+            q_data['teacher'] = request.user.id
+            serializer = QuestionSerializer(data=q_data)
+            if serializer.is_valid():
+                serializer.save()
+            else:
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({'message': 'Test updated successfully.'}, status=status.HTTP_200_OK)
 
