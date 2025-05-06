@@ -6,38 +6,16 @@ export default function StudentDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [sessions, setSessions] = useState([]);
-  const [sessionTests, setSessionTests] = useState({});
-  const [loadingTests, setLoadingTests] = useState({});
   const navigate = useNavigate();
-  const { role, loading: roleLoading } = useUserRole(); // Destructure properly
+  const { role, loading: roleLoading } = useUserRole();
   const token = localStorage.getItem("access_token");
 
   const handleEnrollSessionClick = () => {
     navigate("/student/enroll-session");
   };
 
-  const fetchTestsForSession = async (sessionId) => {
-    setLoadingTests(prev => ({ ...prev, [sessionId]: true }));
-    try {
-      const response = await fetch(
-        `http://127.0.0.1:8000/sessions/${sessionId}/tests/`,
-        {
-          headers: { 
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (!response.ok) throw new Error("Failed to fetch tests");
-      
-      const data = await response.json();
-      setSessionTests(prev => ({ ...prev, [sessionId]: data }));
-    } catch (err) {
-      console.error(`Error fetching tests for session ${sessionId}:`, err);
-      setError(`Failed to load tests for session`);
-    } finally {
-      setLoadingTests(prev => ({ ...prev, [sessionId]: false }));
-    }
+  const handleSessionClick = (sessionId) => {
+    navigate(`/student/session/${sessionId}`);
   };
 
   useEffect(() => {
@@ -64,11 +42,6 @@ export default function StudentDashboard() {
         
         const data = await response.json();
         setSessions(data);
-        
-        // Fetch tests for each session
-        data.forEach(session => {
-          fetchTestsForSession(session.id);
-        });
       } catch (err) {
         console.error(err);
         if (err.response?.status === 401) {
@@ -84,10 +57,6 @@ export default function StudentDashboard() {
 
     fetchEnrolledSessions();
   }, [role, roleLoading, navigate, token]);
-
-  const handleAttemptTest = (testId) => {
-    navigate(`/student/attempt-test/${testId}`);
-  };
 
   if (roleLoading) {
     return (
@@ -120,32 +89,13 @@ export default function StudentDashboard() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {sessions.map((session) => (
-            <div key={session.id} className="border p-4 rounded-lg shadow hover:shadow-md transition">
+            <div 
+              key={session.id} 
+              onClick={() => handleSessionClick(session.id)}
+              className="border p-4 rounded-lg shadow hover:shadow-md transition cursor-pointer"
+            >
               <h3 className="font-bold text-lg mb-2">{session.name}</h3>
-              <p className="text-gray-600 mb-3">{session.description}</p>
-              
-              <div className="mt-4 border-t pt-3">
-                <h4 className="font-semibold mb-2">Tests:</h4>
-                {loadingTests[session.id] ? (
-                  <p className="text-sm text-gray-500">Loading tests...</p>
-                ) : sessionTests[session.id]?.length > 0 ? (
-                  <ul className="space-y-2">
-                    {sessionTests[session.id].map((test) => (
-                      <li key={test.id} className="flex justify-between items-center">
-                        <span className="text-sm">{test.title}</span>
-                        <button
-                          onClick={() => handleAttemptTest(test.id)}
-                          className="bg-green-600 text-white px-2 py-1 rounded text-xs hover:bg-green-700"
-                        >
-                          Attempt
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-gray-500">No tests available</p>
-                )}
-              </div>
+              <p className="text-gray-600">{session.description}</p>
             </div>
           ))}
         </div>

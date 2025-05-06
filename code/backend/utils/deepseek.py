@@ -12,8 +12,11 @@ def evaluate_with_deepseek(prompt):
 
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost",  # or your real frontend URL
+        "X-Title": "SmartAssess"
     }
+
 
     payload = {
         "model": "nvidia/llama-3.1-nemotron-ultra-253b-v1:free",  # or "deepseek-coder" if needed

@@ -68,11 +68,25 @@ class SessionWithTestsSerializer(serializers.ModelSerializer):
         fields = ['id', 'session_name', 'description', 'start_time', 'end_time', 'tests']
         
         
-# serializers.py
 class StudentAnswerSerializer(serializers.ModelSerializer):
+    question_text = serializers.CharField(source='question.text', read_only=True)
+    is_correct = serializers.SerializerMethodField()
+    correct_answer = serializers.SerializerMethodField()
+
     class Meta:
         model = StudentAnswer
-        fields = ['question', 'answer_text']
+        fields = ['question', 'question_text', 'answer_text', 'correct_answer', 'is_correct']
+
+    def get_is_correct(self, obj):
+        if obj.question.question_type == 'MCQ':
+            return obj.answer_text == obj.question.correct_option
+        return None  # or custom logic for QNA if applicable
+
+    def get_correct_answer(self, obj):
+        if obj.question.question_type == 'MCQ':
+            return obj.question.correct_option
+        return None  # or expected text for QNA if you store it
+
 
 # serializers.py
 
@@ -114,3 +128,21 @@ class TestAttemptSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestAttempt
         fields = '__all__'
+        
+        
+class AttemptedTestListSerializer(serializers.ModelSerializer):
+    test_title = serializers.CharField(source='test.title')
+    session_id = serializers.IntegerField(source='test.session.id')
+    session_name = serializers.CharField(source='test.session.session_name')
+
+    class Meta:
+        model = TestAttempt
+        fields = ['id', 'test_title', 'session_id', 'session_name', 'score']
+
+class AttemptedTestDetailSerializer(serializers.ModelSerializer):
+    test_title = serializers.CharField(source='test.title')
+    answers = StudentAnswerSerializer(source='answers.all', many=True)
+
+    class Meta:
+        model = TestAttempt
+        fields = ['id', 'test_title', 'score', 'submitted_at', 'answers']

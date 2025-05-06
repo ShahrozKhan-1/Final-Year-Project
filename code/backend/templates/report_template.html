@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; font-size: 12px; }
+        h2, h3 { color: #2c3e50; }
+        .section { margin-bottom: 20px; }
+        .attempt-box { border-bottom: 1px solid #ccc; padding: 10px 0; }
+    </style>
+</head>
+<body>
+    <h2>Student Performance Report</h2>
+
+    <div class="section">
+        <strong>Student:</strong> {{ student.full_name }}<br>
+        <strong>Email:</strong> {{ student.email }}<br>
+        <strong>Session:</strong> {{ session.title }}<br>
+        <strong>Teacher:</strong> {{ session.teacher.full_name }}
+    </div>
+
+    <div class="section">
+        <h3>Test Attempts</h3>
+        {% for attempt in attempts %}
+            <div class="attempt-box">
+                <strong>Test:</strong> {{ attempt.test_title }}<br>
+                <strong>Score:</strong> {{ attempt.score }}/{{ attempt.total }}<br>
+                <strong>Time Taken:</strong> {{ attempt.duration }}<br>
+                <strong>Date:</strong> {{ attempt.date }}
+            </div>
+        {% empty %}
+            <p>No test attempts found.</p>
+        {% endfor %}
+    </div>
+</body>
+</html>

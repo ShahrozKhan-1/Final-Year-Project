@@ -15,6 +15,9 @@ import PracticeSetup from "./Components/PracticeSetup";
 import ResultPage from "./Pages/ResultPage";
 import TeacherSessionPage from './Pages/TeacherSessionPage';
 import TeacherTest from './Components/TeacherTest';
+import SessionDetails from "./Components/SessionDetail";
+import AttemptedTests from "./Pages/AttemptedTests";
+import AttemptedTestDetail from "./Components/AttemptedTestDetail";
 
 
 function App() {
@@ -35,6 +38,9 @@ function App() {
       <Route path="/teacher-sessions" element={<TeacherSessionPage />} />
       <Route path="/teacher/session/:sessionId/tests" element={<TeacherSessionPage />} />
       <Route path="/teacher/test/:testId" element={<TeacherTest />} />
+      <Route path="/student/session/:sessionId" element={<SessionDetails />} />
+      <Route path="/student/attempted-tests" element={<AttemptedTests />} />
+      <Route path="/student/attempted-tests/:attemptId" element={<AttemptedTestDetail />} />
       <Route path="/" element={<Login />} />
     </Routes>
   );

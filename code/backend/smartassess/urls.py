@@ -27,5 +27,11 @@ urlpatterns = [
     path("teacher/session/<int:session_id>/tests/", TeacherSessionTestsView.as_view(), name="session-tests"),
     path('teacher-tests/', TeacherTestListView.as_view(), name='teacher-tests'),
     path('api/tests/<int:test_id>/', TestDetailView.as_view(), name='test-detail'),
-
+    path('api/sessions/<int:session_id>/', TeacherSessionDetailView.as_view(), name='teacher-session-detail'),
+    path('sessions/<int:session_id>/students/', EnrolledStudentsView.as_view(), name='enrolled-students'),
+    # path('report/student/<int:student_id>/pdf/', StudentReportPDFView.as_view(), name='student_pdf_report'),
+    path('session/<int:session_id>/detail/', session_detail, name='session-detail'),
+    path('student/attempted-tests/', student_attempted_tests, name='student-attempted-tests'),
+    path('student/attempted-tests/<int:attempt_id>/', attempted_test_detail, name='attempted-test-detail'), 
+    path('student/attempted-tests/<int:attempt_id>/pdf/', download_attempt_pdf, name='attempted-test-pdf'),
 ]

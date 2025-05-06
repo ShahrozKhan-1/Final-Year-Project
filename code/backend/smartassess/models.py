@@ -2,6 +2,8 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
+from datetime import timedelta
+
 
 class User(AbstractUser):
     ROLE_CHOICES = [
@@ -101,6 +103,18 @@ class TestAttempt(models.Model):
     total_questions = models.IntegerField(default=0)
     ai_feedback = models.TextField(null=True, blank=True, default="...")
     suggested_topics = models.JSONField(null=True, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)  # Add this line
+    
+    def time_taken(self):
+        if self.end_time:
+            return self.end_time - self.start_time
+        return timedelta(0)
+
+    def calculate_score(self):
+        return self.answers.filter(is_correct=True).count()
+
+    def get_total_questions(self):
+        return self.answers.count()
 
     class Meta:
         unique_together = ('student', 'test')

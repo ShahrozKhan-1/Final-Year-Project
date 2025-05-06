@@ -5,8 +5,15 @@ from .serializers import *
 from rest_framework.decorators import api_view, permission_classes, APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
+from io import BytesIO
+from django.template.loader import get_template
+from django.http import HttpResponse
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import inch
+from xhtml2pdf import pisa
 from rest_framework import status, generics, permissions
 from rest_framework_simplejwt.tokens import RefreshToken
+from reportlab.pdfgen import canvas
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import authenticate
@@ -1317,7 +1324,6 @@ class TeacherTestListView(APIView):
         return Response(serializer.data)
 
 
-
 class TestDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -1332,12 +1338,10 @@ class TestDetailView(APIView):
         if request.user != test.teacher:
             return Response({'error': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
 
-        # Handle question updates
         updated_questions = request.data.get('questions', [])
         deleted_question_ids = request.data.get('delete_questions', [])
         new_questions = request.data.get('new_questions', [])
 
-        # Update existing questions
         for q_data in updated_questions:
             question_id = q_data.get('id')
             if not question_id:
@@ -1352,7 +1356,6 @@ class TestDetailView(APIView):
             else:
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        # Delete specified questions
         for qid in deleted_question_ids:
             try:
                 question = test.questions.get(id=qid)
@@ -1360,7 +1363,6 @@ class TestDetailView(APIView):
             except Question.DoesNotExist:
                 continue
 
-        # Create new questions
         for q_data in new_questions:
             q_data['test'] = test.id
             q_data['teacher'] = request.user.id
@@ -1371,4 +1373,213 @@ class TestDetailView(APIView):
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({'message': 'Test updated successfully.'}, status=status.HTTP_200_OK)
+
+    def delete(self, request, test_id):
+        test = get_object_or_404(Test, id=test_id)
+
+        if request.user != test.teacher:
+            return Response({'error': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+
+        test.delete()
+        return Response({'message': 'Test deleted successfully.'}, status=status.HTTP_204_NO_CONTENT)
+
+
+class TeacherSessionDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, session_id):
+        if getattr(request.user, 'role', None) != "teacher":
+            return Response({"error": "Only teachers can delete their sessions."}, status=403)
+
+        session = get_object_or_404(Session, id=session_id)
+
+        if session.teacher != request.user:
+            return Response({"error": "You do not have permission to delete this session."}, status=403)
+
+        session.delete()
+        return Response({"message": "Session deleted successfully."}, status=204)
+
+
+class EnrolledStudentsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, session_id):
+        session = get_object_or_404(Session, id=session_id)
+
+        if request.user != session.teacher:
+            return Response({"error": "You are not allowed to view these students."}, status=403)
+
+        students = session.enrolled_students.all()
+        serializer = UserSerializer(students, many=True)
+        return Response(serializer.data)
+
+
+'''class StudentReportPDFView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, student_id):
+        student = get_object_or_404(User, id=student_id, role='student')
+
+        # Access control: student can see own report, teacher can see enrolled student's report
+        if request.user.role == 'student' and request.user != student:
+            return HttpResponse("Unauthorized", status=403)
+
+        if request.user.role == 'teacher':
+            # Check if the student is enrolled in any session taught by this teacher
+            teacher_sessions = Session.objects.filter(teacher=request.user, enrolled_students=student)
+            if not teacher_sessions.exists():
+                return HttpResponse("Unauthorized", status=403)
+
+        # Fetch attempts for this student
+        attempts = TestAttempt.objects.filter(student=student).select_related('test__session', 'test__teacher')
+
+        context = {
+            'student': student,
+            'attempts': [],
+        }
+
+        for attempt in attempts:
+            context['attempts'].append({
+                'test_title': attempt.test.title,
+                'session_name': attempt.test.session.session_name,
+                'teacher_name': attempt.test.teacher.get_full_name() or attempt.test.teacher.username,
+                'score': attempt.score or attempt.calculate_score(),
+                'correct_answers': attempt.correct_answers,
+                'total_questions': attempt.total_questions,
+                'start_time': attempt.start_time.strftime('%Y-%m-%d %H:%M'),
+                'end_time': attempt.end_time.strftime('%Y-%m-%d %H:%M') if attempt.end_time else 'N/A',
+                'time_taken': str(attempt.time_taken()),
+                'ai_feedback': attempt.ai_feedback,
+                'suggested_topics': attempt.suggested_topics or [],
+            })
+
+        template = get_template('student_report_template.html')  # create this template
+        html = template.render(context)
+        pdf_file = BytesIO()
+        pisa_status = pisa.CreatePDF(src=html, dest=pdf_file)
+
+        if pisa_status.err:
+            return HttpResponse("PDF generation failed", status=500)
+
+        return HttpResponse(pdf_file.getvalue(), content_type='application/pdf')'''
+
+
+
+# 1. Get unattempted tests in a session
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def session_detail(request, session_id):
+    try:
+        session = Session.objects.get(id=session_id)
+    except Session.DoesNotExist:
+        return Response({'error': 'Session not found'}, status=404)
+
+    all_tests = session.tests.all()
+    attempted_test_ids = TestAttempt.objects.filter(student=request.user, test__in=all_tests).values_list('test_id', flat=True)
+    
+    unattempted_tests = all_tests.exclude(id__in=attempted_test_ids)
+
+    return Response({
+        "session": SessionSerializer(session).data,
+        "unattempted_tests": TestSerializer(unattempted_tests, many=True).data,
+    })
+
+
+# 2. Get all attempted tests by student
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def student_attempted_tests(request):
+    attempts = TestAttempt.objects.filter(student=request.user)
+    serializer = AttemptedTestListSerializer(attempts, many=True)
+    return Response(serializer.data)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def attempted_test_detail(request, attempt_id):
+    """
+    Retrieve detailed info of a single test attempt for the authenticated student.
+    Includes per-question feedback, score, weak topics, and submitted answers.
+    """
+    try:
+        attempt = TestAttempt.objects.get(id=attempt_id, student=request.user)
+    except TestAttempt.DoesNotExist:
+        return Response({'error': 'Test not attempted or not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    student_answers = StudentAnswer.objects.filter(attempt=attempt).select_related('question')
+
+    question_results = []
+    weak_topics_set = set()
+
+    for sa in student_answers:
+        weak_topics = sa.suggested_topics.split(",") if sa.suggested_topics else []
+        weak_topics_set.update([topic.strip() for topic in weak_topics if topic.strip()])
+        
+        question_results.append({
+            'question_id': sa.question.id,
+            'content': sa.question.content,
+            'questionType': sa.question.question_type,
+            'options': {
+                'A': sa.question.option_a,
+                'B': sa.question.option_b,
+                'C': sa.question.option_c,
+                'D': sa.question.option_d
+            } if sa.question.question_type == "MCQ" else None,
+            'student_answer': sa.answer_text,
+            'is_correct': sa.is_correct,
+            'feedback': sa.ai_feedback,
+        })
+
+    return Response({
+        "attempt_id": attempt.id,
+        "test_id": attempt.test_id,
+        "student": attempt.student.username,
+        "score": attempt.score,
+        "correct_answers": attempt.correct_answers,
+        "total_questions": attempt.total_questions,
+        "marks": {
+            "obtained": attempt.correct_answers,
+            "total": attempt.total_questions
+        },
+        "weak_topics": list(weak_topics_set),
+        "feedback": attempt.ai_feedback,
+        "questions": question_results,
+        "submitted_at": attempt.end_time
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def download_attempt_pdf(request, attempt_id):
+    try:
+        attempt = TestAttempt.objects.get(id=attempt_id, student=request.user)
+    except TestAttempt.DoesNotExist:
+        return Response({'error': 'Test attempt not found'}, status=404)
+
+    # Check if submitted_at is None before using strftime()
+    submitted_at = attempt.submitted_at.strftime('%Y-%m-%d %H:%M') if attempt.submitted_at else "Not Submitted Yet"
+
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer)
+    p.drawString(100, 800, f"Test: {attempt.test.title}")
+    p.drawString(100, 780, f"Score: {attempt.score}")
+    p.drawString(100, 760, f"Submitted at: {submitted_at}")  # Safe usage
+
+    # Continue with the rest of your PDF generation...
+    y = 740
+    for ans in attempt.answers.all():
+        question_text = ans.question.content
+        answer = ans.answer_text
+        p.drawString(100, y, f"Q: {question_text[:70]}")  # Trim if long
+        y -= 20
+        p.drawString(120, y, f"A: {answer[:70]}")
+        y -= 30
+        if y < 100:
+            p.showPage()
+            y = 800
+
+    p.save()
+    buffer.seek(0)
+    return HttpResponse(buffer, content_type='application/pdf')
+
+
 

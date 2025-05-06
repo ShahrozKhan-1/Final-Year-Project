@@ -12,3 +12,4 @@ aiohttp
 python-decouple
 yt-dlp
 beautifulsoup4
+xhtml2pdf
