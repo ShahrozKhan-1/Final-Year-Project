@@ -1,9 +1,7 @@
-// src/pages/TeacherSessionPage.jsx
-
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { useUserRole } from '../auth.js'; // Import the useUserRole hook
+import { useUserRole } from '../auth.js';
 
 const TeacherSessionPage = () => {
   const { sessionId } = useParams();
@@ -14,11 +12,9 @@ const TeacherSessionPage = () => {
   const [loadingStudents, setLoadingStudents] = useState(true);
   const [error, setError] = useState(null);
   
-  // Use the auth hook
   const { role, loading: roleLoading } = useUserRole();
 
   useEffect(() => {
-    // Check if user is a teacher before making any requests
     if (!roleLoading && role !== 'teacher') {
       navigate('/unauthorized');
       return;
@@ -33,7 +29,6 @@ const TeacherSessionPage = () => {
           headers: { Authorization: `Bearer ${token}` },
         });
         
-        // Handle tests data
         const testsData = testsRes.data;
         if (Array.isArray(testsData)) {
           setTests(testsData);
@@ -109,10 +104,10 @@ const TeacherSessionPage = () => {
         </button>
       </div>
 
-      {/* Two-column grid layout */}
+      {/* Modified grid layout with 3:1 ratio */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left Column - Tests */}
-        <div className="border p-4 rounded-lg shadow-md">
+        {/* Main Content - Tests (takes 3/4 width) */}
+        <div className="lg:col-span-3 border p-4 rounded-lg shadow-md">
           <h2 className="text-xl font-semibold mb-4">Tests in This Session</h2>
           {tests.length === 0 ? (
             <p>No tests available.</p>
@@ -138,23 +133,34 @@ const TeacherSessionPage = () => {
                   >
                     Delete
                   </button>
+                  <button
+                    onClick={() => navigate(`/teacher/tests/${test.id}/attempts`)}
+                    className="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-3 rounded text-sm"
+                  >
+                    View Results
+                  </button>
                 </div>
               </div>
             ))
           )}
         </div>
 
-        {/* Right Column - Students */}
-        <div className="border p-4 rounded-lg shadow-md">
-          <h2 className="text-xl font-semibold mb-4">Enrolled Students</h2>
+        {/* Smaller Students Column (takes 1/4 width) */}
+        <div className="lg:col-span-1 border p-4 rounded-lg shadow-md">
+          <div className="flex justify-between items-center mb-2">
+            <h2 className="text-lg font-semibold">Enrolled Students</h2>
+            <span className="text-sm bg-gray-200 px-2 py-1 rounded-full">
+              {students.length}
+            </span>
+          </div>
           {students.length === 0 ? (
-            <p>No students enrolled yet.</p>
+            <p className="text-sm text-gray-500">No students enrolled yet.</p>
           ) : (
-            <ul className="space-y-4">
+            <ul className="space-y-2 max-h-[500px] overflow-y-auto">
               {students.map(student => (
-                <li key={student.id} className="border-b py-2">
-                  <p className="font-medium">{student.full_name || student.username}</p>
-                  <p>{student.email}</p>
+                <li key={student.id} className="border-b py-2 text-sm">
+                  <p className="font-medium truncate">{student.full_name || student.username}</p>
+                  <p className="text-xs text-gray-500 truncate">{student.email}</p>
                 </li>
               ))}
             </ul>

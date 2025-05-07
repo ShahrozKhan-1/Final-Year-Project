@@ -34,4 +34,10 @@ urlpatterns = [
     path('student/attempted-tests/', student_attempted_tests, name='student-attempted-tests'),
     path('student/attempted-tests/<int:attempt_id>/', attempted_test_detail, name='attempted-test-detail'), 
     path('student/attempted-tests/<int:attempt_id>/pdf/', download_attempt_pdf, name='attempted-test-pdf'),
+    path('teacher/attempts/<int:attempt_id>/', teacher_attempt_detail),
+    path('teacher/attempts/<int:attempt_id>/download/', teacher_download_attempt_pdf),
+    path('teacher/tests/<int:test_id>/attempts/', teacher_test_attempts), 
+    path('teacher/session/<int:session_id>/results/', teacher_session_result),
+    path('teacher-sessions/', teacher_sessions)
+
 ]

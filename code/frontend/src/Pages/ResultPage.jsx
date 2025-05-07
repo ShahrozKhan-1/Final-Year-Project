@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useUserRole } from '../auth';
 import { motion, AnimatePresence } from 'framer-motion';
-import './ResultPage.css';
 
 const ResultPage = () => {
   const { attemptId } = useParams();

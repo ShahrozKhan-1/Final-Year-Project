@@ -146,3 +146,27 @@ class AttemptedTestDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestAttempt
         fields = ['id', 'test_title', 'score', 'submitted_at', 'answers']
+
+
+
+class SessionSerializer(serializers.ModelSerializer):
+    student_count = serializers.SerializerMethodField()
+    pending_requests = serializers.SerializerMethodField()
+    duration_minutes = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Session
+        fields = [
+            'id', 'session_name', 'description',
+            'start_time', 'end_time', 'created_at',
+            'student_count', 'pending_requests', 'duration_minutes'
+        ]
+
+    def get_student_count(self, obj):
+        return obj.enrolled_students.count()
+
+    def get_pending_requests(self, obj):
+        return obj.pending_students.count()
+
+    def get_duration_minutes(self, obj):
+        return int((obj.end_time - obj.start_time).total_seconds() / 60)

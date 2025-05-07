@@ -18,6 +18,8 @@ import TeacherTest from './Components/TeacherTest';
 import SessionDetails from "./Components/SessionDetail";
 import AttemptedTests from "./Pages/AttemptedTests";
 import AttemptedTestDetail from "./Components/AttemptedTestDetail";
+import TeacherTestAttempts from "./Pages/TeacherTestAttempts ";
+import SessionResultPage from "./Pages/SessionResultPage";
 
 
 function App() {
@@ -41,6 +43,8 @@ function App() {
       <Route path="/student/session/:sessionId" element={<SessionDetails />} />
       <Route path="/student/attempted-tests" element={<AttemptedTests />} />
       <Route path="/student/attempted-tests/:attemptId" element={<AttemptedTestDetail />} />
+      <Route path="/teacher/tests/:testId/attempts" element={<TeacherTestAttempts />} />
+      <Route path="/teacher/session/:sessionId/results" element={<SessionResultPage />} />
       <Route path="/" element={<Login />} />
     </Routes>
   );

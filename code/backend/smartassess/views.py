@@ -8,7 +8,9 @@ from rest_framework.permissions import AllowAny
 from io import BytesIO
 from django.template.loader import get_template
 from django.http import HttpResponse
+from django.db.models import Avg, Count, Max, Min
 from reportlab.lib.pagesizes import A4
+from django.db.models import Avg, Count, Q
 from reportlab.lib.units import inch
 from xhtml2pdf import pisa
 from rest_framework import status, generics, permissions
@@ -1582,4 +1584,178 @@ def download_attempt_pdf(request, attempt_id):
     return HttpResponse(buffer, content_type='application/pdf')
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def teacher_attempt_detail(request, attempt_id):
+    try:
+        attempt = TestAttempt.objects.select_related('test', 'student').get(id=attempt_id)
+    except TestAttempt.DoesNotExist:
+        return Response({'error': 'Attempt not found.'}, status=status.HTTP_404_NOT_FOUND)
 
+    # Ensure the authenticated user is the teacher who created the test
+    if attempt.test.teacher != request.user:
+        return Response({'error': 'Unauthorized access.'}, status=status.HTTP_403_FORBIDDEN)
+
+    student_answers = StudentAnswer.objects.filter(attempt=attempt).select_related('question')
+
+    question_results = []
+    weak_topics_set = set()
+
+    for sa in student_answers:
+        weak_topics = sa.suggested_topics.split(",") if sa.suggested_topics else []
+        weak_topics_set.update([topic.strip() for topic in weak_topics if topic.strip()])
+        
+        question_results.append({
+            'question_id': sa.question.id,
+            'content': sa.question.content,
+            'questionType': sa.question.question_type,
+            'options': {
+                'A': sa.question.option_a,
+                'B': sa.question.option_b,
+                'C': sa.question.option_c,
+                'D': sa.question.option_d
+            } if sa.question.question_type == "MCQ" else None,
+            'student_answer': sa.answer_text,
+            'is_correct': sa.is_correct,
+            'feedback': sa.ai_feedback,
+        })
+
+    return Response({
+        "attempt_id": attempt.id,
+        "test_id": attempt.test_id,
+        "test_title": attempt.test.title,
+        "student": {
+            "id": attempt.student.id,
+            "username": attempt.student.username,
+            "email": attempt.student.email
+        },
+        "score": attempt.score,
+        "correct_answers": attempt.correct_answers,
+        "total_questions": attempt.total_questions,
+        "marks": {
+            "obtained": attempt.correct_answers,
+            "total": attempt.total_questions
+        },
+        "weak_topics": list(weak_topics_set),
+        "feedback": attempt.ai_feedback,
+        "questions": question_results,
+        "submitted_at": attempt.end_time
+    }, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def teacher_download_attempt_pdf(request, attempt_id):
+    try:
+        attempt = TestAttempt.objects.select_related('test', 'student').get(id=attempt_id)
+    except TestAttempt.DoesNotExist:
+        return Response({'error': 'Test attempt not found'}, status=404)
+
+    if attempt.test.teacher != request.user:
+        return Response({'error': 'Unauthorized access'}, status=403)
+
+    submitted_at = attempt.submitted_at.strftime('%Y-%m-%d %H:%M') if attempt.submitted_at else "Not Submitted Yet"
+
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer)
+    p.drawString(100, 800, f"Student: {attempt.student.get_full_name() or attempt.student.username}")
+    p.drawString(100, 780, f"Email: {attempt.student.email}")
+    p.drawString(100, 760, f"Test: {attempt.test.title}")
+    p.drawString(100, 740, f"Score: {attempt.score}/{attempt.total_questions}")
+    p.drawString(100, 720, f"Submitted at: {submitted_at}")
+
+    y = 700
+    for ans in attempt.answers.all():
+        p.drawString(100, y, f"Q: {ans.question.content[:70]}")
+        y -= 20
+        p.drawString(120, y, f"A: {ans.answer_text[:70]}")
+        y -= 30
+        if y < 100:
+            p.showPage()
+            y = 800
+
+    p.save()
+    buffer.seek(0)
+    return HttpResponse(buffer, content_type='application/pdf')
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def teacher_test_attempts(request, test_id):
+    try:
+        test = Test.objects.get(id=test_id, teacher=request.user)
+    except Test.DoesNotExist:
+        return Response({'error': 'Test not found or unauthorized'}, status=404)
+    
+    attempts = TestAttempt.objects.filter(test=test).select_related('student')
+    data = [{
+        'id': a.id,
+        'student_name': a.student.get_full_name() or a.student.username,
+        'student_email': a.student.email,
+        'correct_answers': a.correct_answers,
+        'total_questions': a.total_questions,
+        'end_time': a.end_time,
+        'score': a.score
+    } for a in attempts]
+    
+    return Response(data)
+
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def teacher_session_result(request, session_id):
+    try:
+        session = Session.objects.get(id=session_id, teacher=request.user)
+    except Session.DoesNotExist:
+        return Response({"error": "Session not found or unauthorized"}, status=status.HTTP_404_NOT_FOUND)
+
+    tests = Test.objects.filter(session=session)
+    test_ids = tests.values_list('id', flat=True)
+
+    attempts = TestAttempt.objects.filter(test_id__in=test_ids, is_submitted=True)
+
+    if not attempts.exists():
+        return Response({"message": "No attempts found for this session."}, status=status.HTTP_200_OK)
+
+    # Session level stats
+    overall_avg = attempts.aggregate(avg_score=Avg('score'))['avg_score']
+    highest_score = attempts.aggregate(max_score=Max('score'))['max_score']
+    lowest_score = attempts.aggregate(min_score=Min('score'))['min_score']
+
+    # Per student results (only those with student role)
+    student_results = []
+    students = User.objects.filter(role="student", id__in=attempts.values_list('student_id', flat=True).distinct())
+
+    for student in students:
+        student_attempts = attempts.filter(student=student)
+        average_score = student_attempts.aggregate(avg=Avg('score'))['avg']
+        attempted_tests = student_attempts.count()
+
+        student_results.append({
+            "id": student.id,
+            "name": student.username,
+            "email": student.email,
+            "tests_attempted": attempted_tests,
+            "average_score": round(average_score, 2) if average_score is not None else None,
+        })
+
+    data = {
+        "session_name": session.session_name,
+        "total_tests": tests.count(),
+        "total_students": students.count(),
+        "total_attempts": attempts.count(),
+        "overall_average_score": round(overall_avg, 2) if overall_avg else None,
+        "highest_score": highest_score,
+        "lowest_score": lowest_score,
+        "students": student_results,
+    }
+
+    return Response(data, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def teacher_sessions(request):
+    sessions = Session.objects.filter(teacher=request.user)
+    serializer = SessionSerializer(sessions, many=True)
+    return Response(serializer.data)
