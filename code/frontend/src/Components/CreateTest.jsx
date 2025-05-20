@@ -76,108 +76,106 @@ function CreateTest() {
   };
 
   const handleGenerate = async () => {
-    let currentTestId = testId;
-    if (!currentTestId) {
-      currentTestId = await handleCreateTest();
-      if (!currentTestId) return;
-    }
-  
-    if (!formData.promptText && !formData.file) {
-      setError("Please provide either text content or a file");
-      return;
-    }
-  
-    setLoading({ ...loading, generating: true });
-    setError("");
+  let currentTestId = testId;
+  if (!currentTestId) {
+    currentTestId = await handleCreateTest();
+    if (!currentTestId) return;
+  }
+
+  if (!formData.promptText && !formData.file) {
     setSuccess("");
-  
-    const formDataToSend = new FormData();
-    formDataToSend.append("prompt_text", formData.promptText);
-    if (formData.file) {
-      formDataToSend.append("file", formData.file);
+    setError("Please provide either text content or a file");
+    return;
+  }
+
+  setLoading(prev => ({ ...prev, generating: true }));
+  setError("");
+  setSuccess("");
+
+  const formDataToSend = new FormData();
+  formDataToSend.append("prompt_text", formData.promptText);
+  if (formData.file) {
+    // Optional: validate file size/type here
+    formDataToSend.append("file", formData.file);
+  }
+  formDataToSend.append("difficulty", formData.difficulty);
+  formDataToSend.append("mode", "teacher");
+  formDataToSend.append("test_id", currentTestId);
+  formDataToSend.append("mcq_count", formData.mcqCount);
+  formDataToSend.append("qna_count", formData.qnaCount);
+
+  try {
+    console.log("Sending request to backend...");
+    const response = await axios.post(
+      "http://127.0.0.1:8000/generate-questions/",
+      formDataToSend,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "multipart/form-data",
+        },
+     //   timeout: 30000, // 30-second timeout added
+      }
+    );
+
+    console.log("Received response:", response);
+
+    if (!response.data) throw new Error("Empty response from server");
+
+    let questionsList = [];
+
+    if (Array.isArray(response.data.questions)) {
+      questionsList = response.data.questions;
+    } else if (typeof response.data.questions === 'string') {
+      try {
+        const jsonString = response.data.questions
+          .replace(/```json/g, '')
+          .replace(/```/g, '')
+          .trim();
+        questionsList = JSON.parse(jsonString);
+      } catch (parseError) {
+        console.error("Parse error:", parseError);
+        throw new Error("Failed to parse questions");
+      }
     }
-    formDataToSend.append("difficulty", formData.difficulty);
-    formDataToSend.append("mode", "teacher");
-    formDataToSend.append("test_id", currentTestId);
-    formDataToSend.append("mcq_count", formData.mcqCount);
-    formDataToSend.append("qna_count", formData.qnaCount);
-  
-    try {
-      console.log("Sending request to backend..."); // Debug log
-      const response = await axios.post(
-        "http://127.0.0.1:8000/generate-questions/", 
-        formDataToSend, 
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "multipart/form-data",
-          },
-          timeout: 60000 // 30 second timeout
-        }
-      );
-  
-      console.log("Received response:", response); // Debug log
-  
-      if (!response.data) {
-        throw new Error("Empty response from server");
-      }
-  
-      let questionsList = [];
-      
-      // Handle both array and string responses
-      if (Array.isArray(response.data.questions)) {
-        questionsList = response.data.questions;
-      } else if (response.data.questions && typeof response.data.questions === 'string') {
-        try {
-          const jsonString = response.data.questions
-            .replace(/```json/g, '')
-            .replace(/```/g, '')
-            .trim();
-          questionsList = JSON.parse(jsonString);
-        } catch (parseError) {
-          console.error("Parse error:", parseError);
-          throw new Error("Failed to parse questions");
-        }
-      }
-  
-      // Ensure we have valid questions
-      if (!questionsList || questionsList.length === 0) {
-        throw new Error("No questions generated");
-      }
-  
-      const formattedQuestions = questionsList.map((q, i) => ({
-        id: q.id || `temp-${i}-${Date.now()}`, // Ensure unique IDs
-        question_type: q.question_type || 'MCQ',
-        content: q.content || 'No content provided',
-        option_a: q.option_a || '',
-        option_b: q.option_b || '',
-        option_c: q.option_c || '',
-        option_d: q.option_d || '', 
-        correct_option: q.correct_option || 'A'
-      }));
-  
-      console.log("Formatted questions:", formattedQuestions); // Debug log
-      setQuestions(formattedQuestions);
-      setSuccess(`Successfully generated ${formattedQuestions.length} questions!`);
-    } catch (error) {
-      console.error("Generation error:", error);
-      let errorMsg = "Failed to generate questions";
-      
-      if (error.response) {
-        // Handle HTTP errors
-        errorMsg = error.response.data?.error || 
-                  error.response.data?.message || 
-                  `Server error: ${error.response.status}`;
-      } else if (error.message) {
-        // Handle other errors
-        errorMsg = error.message;
-      }
-      
-      setError(errorMsg);
-    } finally {
-      setLoading({ ...loading, generating: false });
+
+    if (!questionsList || questionsList.length === 0) {
+      throw new Error("No questions generated");
     }
-  };
+
+    const formattedQuestions = questionsList.map((q, i) => ({
+      id: q.id || `temp-${i}-${Date.now()}`,
+      question_type: q.question_type || 'MCQ',
+      content: q.content || 'No content provided',
+      option_a: q.option_a || '',
+      option_b: q.option_b || '',
+      option_c: q.option_c || '',
+      option_d: q.option_d || '',
+      correct_option: q.correct_option || 'A'
+    }));
+
+    console.log("Formatted questions:", formattedQuestions);
+    setQuestions(formattedQuestions);
+    setSuccess(`Successfully generated ${formattedQuestions.length} questions!`);
+  } catch (error) {
+    console.error("Generation error:", error);
+    let errorMsg = "Failed to generate questions";
+
+    if (error.response) {
+      errorMsg = error.response.data?.error ||
+        error.response.data?.message ||
+        `Server error: ${error.response.status}`;
+    } else if (error.message) {
+      errorMsg = error.message;
+    }
+
+    setSuccess("");
+    setError(errorMsg);
+  } finally {
+    setLoading(prev => ({ ...prev, generating: false }));
+  }
+};
+
 
   const handleSaveQuiz = async () => {
     if (!testId) {

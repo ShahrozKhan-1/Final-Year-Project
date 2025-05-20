@@ -30,7 +30,7 @@ ALLOWED_HOSTS = []
 
 # Application definition
 
-DEEPSEEK_API_KEY=config('DEEPSEEK_API_KEY', default=None)
+MODEL_API_KEY=config('MODEL_API_KEY', default=None)
     
 
 INSTALLED_APPS = [

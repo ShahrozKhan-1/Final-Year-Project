@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import { motion } from 'framer-motion';
 
 const PracticeTest = () => {
   const [topic, setTopic] = useState('');
@@ -14,6 +15,11 @@ const PracticeTest = () => {
   const [loading, setLoading] = useState(false);
 
   const token = localStorage.getItem('access_token');
+
+  const fadeUp = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0 },
+  };
 
   const handleGenerate = async () => {
     setLoading(true);
@@ -74,6 +80,7 @@ const PracticeTest = () => {
           },
         }
       );
+      console.log("Result:", res.data);
       setResult(res.data);
       setSubmitted(true);
     } catch (error) {
@@ -85,7 +92,14 @@ const PracticeTest = () => {
   const renderResultItem = (item, index) => {
     const isCorrect = item.is_correct;
     return (
-      <div key={index} className={`mb-6 p-4 rounded-lg border ${isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+      <motion.div
+        variants={fadeUp}
+        initial="hidden"
+        animate="visible"
+        transition={{ duration: 0.3, delay: index * 0.1 }}
+        key={index}
+        className={`mb-6 p-4 rounded-lg border ${isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}
+      >
         <div className="flex items-start">
           <span className={`mr-2 mt-1 ${isCorrect ? 'text-green-600' : 'text-red-600'}`}>
             {isCorrect ? '✓' : '✗'}
@@ -113,19 +127,31 @@ const PracticeTest = () => {
             )}
           </div>
         </div>
-      </div>
+      </motion.div>
     );
   };
 
   return (
-    <div className="max-w-4xl mx-auto py-10 px-4 sm:px-6 lg:px-8">
+    <motion.div
+      initial="hidden"
+      animate="visible"
+      variants={fadeUp}
+      transition={{ duration: 0.6 }}
+      className="max-w-4xl mx-auto py-10 px-4 sm:px-6 lg:px-8"
+    >
       <h1 className="text-3xl font-bold text-center mb-8 text-blue-700">Practice Test</h1>
 
       {!questions.length && (
-        <div className="bg-white shadow-md rounded-lg p-6 space-y-4 border">
+        <motion.div
+          variants={fadeUp}
+          initial="hidden"
+          animate="visible"
+          transition={{ duration: 0.5 }}
+          className="bg-white shadow-md rounded-lg p-6 space-y-4 border"
+        >
           <input
             type="text"
-            placeholder="Enter a topic (or upload file)"
+            placeholder="Enter a topic or leave blank to upload file"
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             className="w-full p-3 border rounded-lg focus:outline-none focus:ring focus:ring-blue-300"
@@ -140,14 +166,14 @@ const PracticeTest = () => {
               type="number"
               value={mcqCount}
               onChange={(e) => setMcqCount(Number(e.target.value))}
-              placeholder="MCQs"
+              placeholder="Number of MCQs"
               className="w-1/2 p-3 border rounded-lg focus:outline-none"
             />
             <input
               type="number"
               value={qnaCount}
               onChange={(e) => setQnaCount(Number(e.target.value))}
-              placeholder="QnAs"
+              placeholder="Number of QnAs"
               className="w-1/2 p-3 border rounded-lg focus:outline-none"
             />
           </div>
@@ -162,18 +188,25 @@ const PracticeTest = () => {
           </select>
           <button
             onClick={handleGenerate}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg"
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-all"
             disabled={loading}
           >
             {loading ? 'Generating...' : 'Generate Questions'}
           </button>
-        </div>
+        </motion.div>
       )}
 
       {questions.length > 0 && !submitted && (
         <div className="mt-8 space-y-6">
           {questions.map((q, idx) => (
-            <div key={idx} className="bg-white border shadow-sm rounded-xl p-6 space-y-3">
+            <motion.div
+              key={idx}
+              variants={fadeUp}
+              initial="hidden"
+              animate="visible"
+              transition={{ duration: 0.3, delay: idx * 0.1 }}
+              className="bg-white border shadow-sm rounded-xl p-6 space-y-3"
+            >
               <p className="font-medium text-lg text-gray-800">
                 {idx + 1}. {q.question || q.content}
               </p>
@@ -192,7 +225,7 @@ const PracticeTest = () => {
                             type="radio"
                             name={`question-${idx}`}
                             value={q[key]}
-                            onChange={(e) => handleAnswerChange(idx, opt)}
+                            onChange={() => handleAnswerChange(idx, opt)}
                             className="mr-2"
                           />
                           <span className="font-medium">
@@ -211,90 +244,115 @@ const PracticeTest = () => {
                   placeholder="Write your answer here..."
                 />
               )}
-            </div>
+            </motion.div>
           ))}
 
-          <button
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            whileHover={{ scale: 1.01 }}
             onClick={handleSubmit}
             disabled={Object.keys(answers).length !== questions.length}
-            className={`w-full text-white font-semibold py-3 rounded-lg ${
+            className={`w-full text-white font-semibold py-3 rounded-lg transition-all ${
               Object.keys(answers).length === questions.length 
                 ? 'bg-green-600 hover:bg-green-700' 
                 : 'bg-gray-400 cursor-not-allowed'
             }`}
           >
             Submit Answers
-          </button>
+          </motion.button>
         </div>
       )}
 
-      {result && (
-        <div className="mt-10 space-y-6">
-          <div className="bg-white shadow-md rounded-xl p-6 border border-blue-200">
-            <h2 className="text-2xl font-bold text-blue-700 mb-4">Test Results</h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-              <div className="bg-blue-50 p-4 rounded-lg text-center">
-                <div className="text-3xl font-bold text-blue-700">
-                  {result.score_breakdown?.mcq?.correct || 0}/{result.score_breakdown?.mcq?.total || 0}
-                </div>
-                <div className="text-sm text-blue-600">MCQ Score</div>
-              </div>
-              <div className="bg-green-50 p-4 rounded-lg text-center">
-                <div className="text-3xl font-bold text-green-700">
-                  {result.score_breakdown?.mcq?.percentage ? `${result.score_breakdown.mcq.percentage}%` : 'N/A'}
-                </div>
-                <div className="text-sm text-green-600">Percentage</div>
-              </div>
-              <div className="bg-purple-50 p-4 rounded-lg text-center">
-                <div className="text-3xl font-bold text-purple-700">
-                  {result.suggested_topics?.length || 0}
-                </div>
-                <div className="text-sm text-purple-600">Areas to Improve</div>
-              </div>
-            </div>
+            {submitted && result && (
+        <motion.div
+          initial="hidden"
+          animate="visible"
+          variants={fadeUp}
+          transition={{ duration: 0.5 }}
+          className="mt-10 bg-white border rounded-xl p-6 shadow-sm"
+        >
+          <h2 className="text-2xl font-bold mb-4 text-green-700">Test Results</h2>
+          
+          <p className="text-md mb-6 text-gray-700">
+            <strong>Feedback:</strong> {result.overall_feedback}
+          </p>
+          
 
-            {result.overall_feedback && (
-              <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
-                <div className="flex">
-                  <div className="flex-shrink-0 text-yellow-500">💡</div>
-                  <div className="ml-3 whitespace-pre-line">{result.overall_feedback}</div>
+          {result.results.map((item, index) => (
+            <motion.div
+              variants={fadeUp}
+              initial="hidden"
+              animate="visible"
+              transition={{ duration: 0.3, delay: index * 0.1 }}
+              key={index}
+              className={`mb-6 p-4 rounded-lg border ${
+                item.is_correct ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+              }`}
+            >
+              <div className="flex items-start">
+                <span
+                  className={`mr-2 mt-1 ${
+                    item.is_correct ? 'text-green-600' : 'text-red-600'
+                  }`}
+                >
+                  {item.is_correct ? '✓' : '✗'}
+                </span>
+                <div className="flex-1">
+                  <h3 className="font-medium text-gray-800">{item.question}</h3>
+
+                  {item.question_type === 'MCQ' ? (
+                    <div className="mt-2 text-sm space-y-1">
+                      <div>
+                        <strong>Your answer:</strong>{' '}
+                        <span
+                          className={
+                            item.is_correct ? 'text-green-600' : 'text-red-600'
+                          }
+                        >
+                          {item.student_answer}
+                        </span>
+                      </div>
+                      {!item.is_correct && (
+                        <div>
+                          <strong>Correct answer:</strong>{' '}
+                          <span className="text-green-600">{item.correct_option}</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-sm space-y-1">
+                      <div>
+                        <strong>Your answer:</strong>{' '}
+                        <span className="text-gray-700">{item.student_answer}</span>
+                      </div>
+                      <div>
+                        <strong>Expected answer:</strong>{' '}
+                        <span className="text-green-600">{item.correct_answer}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {item.feedback && (
+                    <div className="mt-2 text-sm text-gray-600">
+                      <strong>Feedback:</strong> {item.feedback}
+                    </div>
+                  )}
                 </div>
               </div>
-            )}
+            </motion.div>
+          ))}
 
-            <h3 className="text-xl font-semibold mb-4 text-gray-800">Question Breakdown</h3>
-            <div className="space-y-4">
-              {result.results?.map(renderResultItem)}
-            </div>
-
-            {result.suggested_topics?.length > 0 && (
-              <div className="mt-6 bg-gray-50 p-4 rounded-lg">
-                <h3 className="text-lg font-semibold mb-2 text-gray-800">Suggested Study Topics</h3>
-                <div className="flex flex-wrap gap-2">
-                  {result.suggested_topics.map((topic, idx) => (
-                    <span key={idx} className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
-                      {topic}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
+          <div className="mt-6">
+            <h3 className="font-semibold text-gray-700 mb-2">Suggested Topics for Improvement:</h3>
+            <ul className="list-disc list-inside text-sm text-gray-600">
+              {result.suggested_topics.map((topic, i) => (
+                <li key={i}>{topic}</li>
+              ))}
+            </ul>
           </div>
-
-          <button
-            onClick={() => {
-              setQuestions([]);
-              setResult(null);
-              setSubmitted(false);
-            }}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg"
-          >
-            Start New Test
-          </button>
-        </div>
+        </motion.div>
       )}
-    </div>
+    </motion.div>
   );
 };
 

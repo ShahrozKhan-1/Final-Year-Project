@@ -1,10 +1,10 @@
 import React from "react";
 import { Routes, Route } from "react-router-dom";
-import Home from "./Pages/Home";
-import Login from "./Pages/Login";
-import Register from "./Pages/Register";
-import StudentPage from "./Pages/StudentPage";
-import TeacherPage from "./Pages/TeacherPage";
+import Home from "./Pages/Home/Home";
+import Login from "./Pages/LoginRegister/Login";
+import Register from "./Pages/LoginRegister/Register";
+import StudentPage from "./Pages/StudentDashboard/StudentPage";
+import TeacherPage from "./Pages/TeacherDashboard/TeacherPage";
 import AdminPage from "./Pages/AdminPage";
 import CreateSession from "./Components/CreateSession";
 import EnrollSession from "./Components/EnrollSession";
@@ -25,6 +25,7 @@ import SessionResultPage from "./Pages/SessionResultPage";
 function App() {
   return (
     <Routes>
+      <Route path="/home" element={<Home />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/student-dashboard" element={<StudentPage />} />

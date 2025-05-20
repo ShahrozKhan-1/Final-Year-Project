@@ -143,6 +143,7 @@ class PracticeAttempt(models.Model):
     score = models.FloatField(null=True, blank=True)
     feedback = models.TextField(blank=True)
 
+
 class PracticeQuestion(models.Model):
     attempt = models.ForeignKey(PracticeAttempt, related_name='questions', on_delete=models.CASCADE)
     question_type = models.CharField(max_length=3, choices=[('MCQ', 'MCQ'), ('QNA', 'QNA')])

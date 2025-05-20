@@ -1,0 +1,82 @@
+/* Auth Pages Styles */
+:root {
+  --primary: #0ea5e9;
+  --primary-dark: #0284c7;
+  --primary-light: #38bdf8;
+  --teal: #14b8a6;
+  --teal-dark: #0f766e;
+  --teal-light: #2dd4bf;
+}
+
+/* Login Page Styles */
+.login-wrapper {
+  background: linear-gradient(135deg, #0f172a 0%, #0e7490 50%, #0369a1 100%);
+}
+
+/* Register Page Styles */
+.register-wrapper {
+  background: linear-gradient(135deg, #0f172a 0%, #0e7490 50%, #0369a1 100%);
+}
+
+
+/* Logo Circle */
+.logo-circle {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background-color: rgba(14, 165, 233, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Feature Icon Circle */
+.feature-icon-circle {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Custom Bootstrap Overrides */
+.btn-primary {
+  background: linear-gradient(to right, #0ea5e9, #0891b2);
+  border: none;
+}
+
+.btn-primary:hover,
+.btn-primary:focus {
+  background: linear-gradient(to right, #0284c7, #0e7490);
+  border: none;
+}
+
+.btn-outline-primary {
+  color: #0ea5e9;
+  border-color: #0ea5e9;
+}
+
+.btn-outline-primary:hover,
+.btn-outline-primary:focus {
+  background-color: #0ea5e9;
+  border-color: #0ea5e9;
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: #0ea5e9;
+  box-shadow: 0 0 0 0.25rem rgba(14, 165, 233, 0.25);
+}
+
+.input-group-text {
+  background-color: #f8f9fa;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 767.98px) {
+  .card-body {
+    padding: 1.5rem;
+  }
+}
