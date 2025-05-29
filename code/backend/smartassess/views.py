@@ -3,7 +3,12 @@ from django.conf import settings
 from urllib.parse import urlparse, parse_qs
 from .models import * 
 from .serializers import *
-from rest_framework.decorators import api_view, permission_classes, APIView
+import tiktoken
+import nltk
+from rest_framework import viewsets
+from nltk.corpus import stopwords
+from nltk.tokenize import sent_tokenize, word_tokenize
+from rest_framework.decorators import api_view, permission_classes, APIView, action
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from io import BytesIO
@@ -51,10 +56,11 @@ from django.db import transaction
 import time
 import aiohttp
 import traceback
+import io
 
 logger = logging.getLogger(__name__)
 
-
+STOP_WORDS = set(stopwords.words('english'))
 
 User = get_user_model()
 
@@ -238,292 +244,400 @@ class CreateTestView(APIView):
         return Response(serializer.errors, status=400)
 
 
+# Ensure NLTK resources are downloaded once
+def ensure_nltk_resources():
+    resources = {
+        'punkt': ('tokenizers/punkt', nltk.download),
+        'stopwords': ('corpora/stopwords', nltk.download),
+        'wordnet': ('corpora/wordnet', nltk.download),
+        'omw-1.4': ('corpora/omw-1.4', nltk.download)
+    }
+    
+    for resource, (path, downloader) in resources.items():
+        try:
+            nltk.data.find(path)
+        except LookupError:
+            downloader(resource.split('/')[-1], quiet=True)
 
 class GenerateQuestionsView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+    
+    # Configuration
+    MAX_PDF_SIZE = 10 * 1024 * 1024  # 10MB
+    MAX_CONTENT_TOKENS = 80000
+    SUMMARY_RATIO = 0.3
+    MODEL_MAX_TOKENS = 8000
+
+    def __init__(self):
+        self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        self.token_counts = {}
+        ensure_nltk_resources()
 
     def post(self, request):
+        """Main endpoint for question generation"""
         try:
-            # Parse and validate input
-            prompt = request.data.get('prompt_text', '')
-            mode = request.data.get('mode', '')
-            difficulty = request.data.get('difficulty', 'medium')
-            file = request.FILES.get('file', None)
-            test_id = request.data.get('test_id')
-            mcq_count = min(int(request.data.get('mcq_count', 0)), 20)
-            qna_count = min(int(request.data.get('qna_count', 0)), 20)
-
-            if mcq_count + qna_count == 0:
-                return Response(
-                    {"error": "At least one question type must be requested"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            # Process input (text, file, or URL)
-            if file:
-                prompt = self.process_file(file)
-            elif prompt.startswith(('http://', 'https://')):
-                prompt = self.process_url(prompt)
-
-            # Generate questions
-            questions = self.generate_questions(prompt, difficulty, mcq_count, qna_count)
+            # Extract and process content
+            raw_content = self._extract_content(request)
+            processed_content = self._process_content(raw_content)
+            difficulty = request.data.get('difficulty', 'medium').capitalize()
             
-            # # Save to database if in teacher mode
-            # if mode == "teacher" and test_id:
-            #     self.save_questions(test_id, request.user, questions)
-
+            # Create AI prompt
+            prompt, prompt_tokens = self._create_prompt(
+                processed_content,
+                int(request.data.get('mcq_count', 0)),
+                int(request.data.get('qna_count', 0)),
+                difficulty
+            )
+            
+            # Generate and format questions
+            raw_questions = self._generate_questions(prompt)
+            formatted_questions = self._format_questions(
+                raw_questions, 
+                difficulty=difficulty,
+                topic=processed_content[:100]  # Truncate to match model's max_length
+            )
+            
             return Response({
-                "questions": questions,
-                "message": f"Generated {len(questions)} questions successfully"
+                "questions": formatted_questions,
+                "token_usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "content_tokens": self.token_counts.get('content', 0),
+                    "total_tokens": prompt_tokens + self.token_counts.get('content', 0)
+                },
+                "warning": "Questions are not persisted to database"
             })
 
         except ValueError as e:
+            logger.error(f"Validation Error: {str(e)}")
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"Server Error: {traceback.format_exc()}")
+            return Response(
+                {"error": "Internal server error. Please try again later."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+            
 
-    def process_file(self, file):
-        """Process uploaded file"""
-        file_name = default_storage.save(file.name, file)
-        file_path = default_storage.path(file_name)
+    def _extract_content(self, request):
+        """Extract content from file/url/text input"""
+        if file := request.FILES.get('file'):
+            if file.size > self.MAX_PDF_SIZE:
+                raise ValueError(f"File size exceeds {self.MAX_PDF_SIZE//1024//1024}MB limit")
+            return self._process_file(file)
         
+        text = request.data.get('prompt_text', '')
+        if text.startswith(('http://', 'https://')):
+            return self._process_webpage(text)
+            
+        return text
+
+    def _process_file(self, file):
+        """Process uploaded files in memory"""
         try:
-            if file.name.endswith(".pdf"):
-                with fitz.open(file_path) as doc:
+            if file.name.endswith('.pdf'):
+                with fitz.open(stream=file.read(), filetype="pdf") as doc:
                     return " ".join(page.get_text() for page in doc)
-            elif file.name.endswith(".docx"):
-                doc = docx.Document(file_path)
-                return " ".join(para.text for para in doc.paragraphs)
-            elif file.name.endswith(".txt"):
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    return f.read()
-            else:
-                raise ValueError("Unsupported file format")
-        finally:
-            default_storage.delete(file_name)
-
-    def process_url(self, url):
-        """Process URL (YouTube or webpage)"""
-        if 'youtube.com' in url or 'youtu.be' in url:
-            return self.process_youtube(url)
-        return self.process_webpage(url)
-
-    def process_youtube(self, url):
-        """Extract YouTube video transcript"""
-        try:
-            ydl_opts = {
-                'quiet': True,
-                'skip_download': True,
-                'writesubtitles': True,
-                'subtitleslangs': ['en'],
-                'subtitlesformat': 'vtt'
-            }
-            
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                if 'subtitles' in info and info['subtitles']:
-                    return '\n'.join(sub['data'] for sub in info['subtitles'].get('en', []))
-                return info.get('description', '') + ' ' + info.get('title', '')
+            elif file.name.endswith('.docx'):
+                return " ".join(p.text for p in docx.Document(io.BytesIO(file.read())).paragraphs)
+            elif file.name.endswith('.txt'):
+                return file.read().decode('utf-8')
+            raise ValueError("Unsupported file format")
         except Exception as e:
-            raise ValueError(f"Couldn't process YouTube video: {str(e)}")
+            raise ValueError(f"File processing error: {str(e)}")
 
-    def process_webpage(self, url):
-        """Extract main content from webpage"""
+    def _process_webpage(self, url):
+        """Extract and clean webpage content"""
         try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            response = requests.get(url, headers=headers, timeout=10)
-            response.raise_for_status()  # Raises HTTPError for bad responses
-
-            soup = BeautifulSoup(response.text, 'html.parser')
-
-            # Remove common non-content elements
-            for tag in soup(['script', 'style', 'nav', 'footer', 'aside', 'noscript', 'header']):
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Remove unwanted elements
+            for tag in soup(['script', 'style', 'nav', 'footer', 'aside', 'header']):
                 tag.decompose()
-
-            # Try to find the main content
-            main_content = soup.find('main')
-            if main_content:
-                text = ' '.join(main_content.stripped_strings)
-            else:
-                # Fallback: get the body text
-                text = ' '.join(soup.body.stripped_strings) if soup.body else ' '.join(soup.stripped_strings)
-
-            # Optional: Truncate very long content (to avoid hitting token limits in LLMs)
-            return text[:10000]  # Limit to first 10,000 characters
-        except requests.exceptions.RequestException as e:
-            raise ValueError(f"Request error while processing webpage: {str(e)}")
+                
+            return ' '.join(soup.stripped_strings)[:100000] 
         except Exception as e:
-            raise ValueError(f"Couldn't process webpage: {str(e)}")
+            raise ValueError(f"Webpage processing failed: {str(e)}")
+
+    def _process_content(self, text):
+        """Ensure content token count stays under 80k using NLTK summarization."""
+        tokens = self.tokenizer.encode(text)
+        self.token_counts['content'] = len(tokens)
+
+        if len(tokens) <= self.MAX_CONTENT_TOKENS:
+            return text
+
+        # Reduce the content using iterative summarization
+        reduced_text = text
+        max_iterations = 5  # prevent infinite loops
+        ratio = self.SUMMARY_RATIO
+
+        for _ in range(max_iterations):
+            reduced_text = self._summarize_text(reduced_text, ratio=ratio)
+            tokens = self.tokenizer.encode(reduced_text)
+            self.token_counts['content'] = len(tokens)
+            if len(tokens) <= self.MAX_CONTENT_TOKENS:
+                break
+            ratio *= 0.7  # progressively reduce more
+
+        if len(tokens) > self.MAX_CONTENT_TOKENS:
+            raise ValueError("Input content is too long even after summarization")
+
+        return reduced_text
 
 
-    def generate_questions(self, prompt, difficulty, mcq_count, qna_count):
-        """Generate questions in optimized batch"""
-        if mcq_count + qna_count == 0:
-            return []
+    def _summarize_text(self, text, ratio=None):
+        """Text summarization using sentence scoring with adjustable ratio"""
+        ratio = ratio if ratio is not None else self.SUMMARY_RATIO
+        sentences = sent_tokenize(text)
+        if not sentences:
+            return text
+
+        words = [word.lower() for word in word_tokenize(text) 
+                if word.isalnum() and word not in stopwords.words('english')]
         
-        # Try batch generation first
-        try:
-            batch_response = self.generate_batch(prompt, difficulty, mcq_count, qna_count)
-            if batch_response:
-                return batch_response
-        except Exception as e:
-            print(f"Batch generation failed: {str(e)}")
-        
-        # Fallback to sequential if batch fails
-        questions = []
-        if mcq_count > 0:
-            questions.extend(self.generate_mcqs(prompt, difficulty, mcq_count))
-        if qna_count > 0:
-            questions.extend(self.generate_qnas(prompt, difficulty, qna_count))
-        return questions
+        freq_dist = nltk.FreqDist(words)
+        sentence_scores = {}
 
-    def generate_batch(self, prompt, difficulty, mcq_count, qna_count):
-        """Generate all questions in one API call"""
-        prompt_template = f"""Generate a quiz with these requirements:
-- Topic: {prompt}
-- Difficulty: {difficulty}
-- {mcq_count} MCQs (with 4 options each and correct answer)
-- {qna_count} open-ended questions
+        for i, sentence in enumerate(sentences):
+            for word in word_tokenize(sentence.lower()):
+                if word in freq_dist:
+                    sentence_scores[i] = sentence_scores.get(i, 0) + freq_dist[word]
 
-Return STRICT JSON format:
-{{
-    "mcqs": [{{"content": "...", "option_a": "...", "option_b": "...", 
-              "option_c": "...", "option_d": "...", "correct_option": "A"}}],
-    "qnas": [{{"content": "..."}}]
-}}"""
-        
-        response = evaluate_with_AI(prompt_template)
-        if not response:
-            return None
-            
-        # Clean and parse response
-        content = response.strip()
-        if content.startswith('```json'):
-            content = content[7:-3].strip()
-        elif content.startswith('```'):
-            content = content[3:-3].strip()
-            
-        data = json.loads(content)
-        
-        # Format questions
-        questions = []
-        for mcq in data.get('mcqs', [])[:mcq_count]:
-            mcq.update({
-                'question_type': 'MCQ',
-                'difficulty': difficulty
-            })
-            questions.append(mcq)
-            
-        for qna in data.get('qnas', [])[:qna_count]:
-            qna.update({
-                'question_type': 'QNA',
-                'difficulty': difficulty
-            })
-            questions.append(qna)
-            
-        return questions
+        keep_count = max(1, int(len(sentences) * ratio))
+        top_sentences = sorted(sentence_scores.items(), key=lambda x: x[1], reverse=True)[:keep_count]
+        top_sentences = sorted([s[0] for s in top_sentences])
 
-    def generate_mcqs(self, prompt, difficulty, count):
-        """Generate multiple choice questions"""
-        prompt_template = f"""Generate {count} {difficulty} MCQs about:
-{prompt}
+        return ' '.join([sentences[i] for i in top_sentences])
 
-For each provide:
-1. Question text
-2. 4 options (A-D)
-3. Correct answer
 
-Return STRICT JSON format:
-{{
-    "questions": [
+    def _create_prompt(self, content, mcq_count, qna_count, difficulty):
+        """Construct and tokenize the AI prompt with strict format requirements"""
+        prompt_template = f"""
+    [STRICTLY FOLLOW THESE FORMAT RULES]
+    - Output MUST be pure JSON only (no markdown/code blocks)
+    - Top-level keys MUST be "mcqs" and "qnas"
+    - MCQ format:
         {{
-            "content": "...",
-            "option_a": "...",
-            "option_b": "...",
-            "option_c": "...",
-            "option_d": "...",
-            "correct_option": "A"
+          "content": "Question text",
+          "option_a": "Choice A",
+          "option_b": "Choice B",
+          "option_c": "Choice C",
+          "option_d": "Choice D",
+          "correct_option": "b"  // Must be a/b/c/d
         }}
-    ]
-}}"""
-        
-        response = evaluate_with_AI(prompt_template)
-        if not response:
-            return self.fallback_mcqs(prompt, difficulty, count)
-            
+    - QnA format:
+        {{ "content": "Question text" }}
+
+    [EXAMPLE]
+    {{
+      "mcqs": [{{...}}],
+      "qnas": [{{...}}]
+    }}
+
+    Generate for:
+    - Topic: {content[:1000]}... [truncated]
+    - Difficulty: {difficulty.upper()}
+    - MCQs: {mcq_count}, QnAs: {qna_count}
+    """
+
+        # Tokenization logic remains the same
+        tokens = self.tokenizer.encode(prompt_template)
+        if len(tokens) > self.MODEL_MAX_TOKENS:
+            truncated = self.tokenizer.decode(tokens[:self.MODEL_MAX_TOKENS])
+            return truncated, self.MODEL_MAX_TOKENS
+        return prompt_template, len(tokens)
+
+
+    def _extract_json(self, content):
+        """Robust JSON extraction with validation"""
         try:
-            data = json.loads(response.strip().strip('```').strip())
-            return [{
-                **q,
-                'question_type': 'MCQ',
-                'difficulty': difficulty
-            } for q in data.get('questions', [])]
-        except Exception:
-            return self.fallback_mcqs(prompt, difficulty, count)
+            # Handle code block formatting
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0]
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0]
 
-    def generate_qnas(self, prompt, difficulty, count):
-        """Generate open-ended questions"""
-        prompt_template = f"""Generate {count} {difficulty} open-ended questions about:
-{prompt}
-
-Return STRICT JSON format:
-{{
-    "questions": [
-        {{"content": "..."}}
-    ]
-}}"""
-        
-        response = evaluate_with_AI(prompt_template)
-        if not response:
-            return self.fallback_qnas(prompt, difficulty, count)
+            # Attempt direct parse
+            data = json.loads(content.strip())
             
+            if 'quiz' in data and 'questions' in data['quiz']:
+                return self._remap_quiz_structure(data['quiz']['questions'])
+            
+            # Validate structure
+            if not isinstance(data, dict):
+                raise ValueError("Top-level structure is not a dictionary")
+                
+            if 'mcqs' not in data or 'qnas' not in data:
+                raise ValueError("Missing required 'mcqs' or 'qnas' keys")
+                
+            return data
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"JSON Decode Error: {e}")
+            # Fallback: Try to find JSON substring
+            try:
+                json_str = re.search(r'\{.*\}', content, re.DOTALL)
+                if json_str:
+                    return json.loads(json_str.group())
+                raise
+            except Exception as e:
+                logger.error(f"Fallback JSON parse failed: {e}")
+                raise ValueError("Could not extract valid JSON from response")
+            
+    def _remap_quiz_structure(self, questions):
+        """Convert 'questions' array to {mcqs: [], qnas: []} format"""
+        mcqs = []
+        qnas = []
+        
+        for q in questions:
+            if 'options' in q:  # MCQ
+                mcqs.append({
+                    "content": q.get("question", ""),
+                    "option_a": q['options'][0] if len(q['options']) > 0 else "",
+                    "option_b": q['options'][1] if len(q['options']) > 1 else "",
+                    "option_c": q['options'][2] if len(q['options']) > 2 else "",
+                    "option_d": q['options'][3] if len(q['options']) > 3 else "",
+                    "correct_option": self._derive_correct_option(q)
+                })
+            else:  # QnA
+                qnas.append({"content": q.get("question", "")})
+        
+        return {"mcqs": mcqs, "qnas": qnas}
+
+    def _derive_correct_option(self, question):
+        """Convert answer text to A/B/C/D index"""
+        answer = str(question.get("answer", "")).strip()
+        options = question.get("options", [])
+        
+        # Find matching option index
+        for idx, opt in enumerate(options):
+            if str(opt).strip() == answer:
+                return chr(65 + idx)  # 65 = 'A'
+        
+        return "A"  # Default if not found
+
+    def _generate_questions(self, prompt):
+        """Handle AI response with multiple fallback strategies"""
         try:
-            data = json.loads(response.strip().strip('```').strip())
-            return [{
-                'content': q['content'],
-                'question_type': 'QNA',
-                'difficulty': difficulty
-            } for q in data.get('questions', [])]
-        except Exception:
-            return self.fallback_qnas(prompt, difficulty, count)
+            ai_response = evaluate_with_AI(prompt)
+            if not ai_response:
+                raise ValueError("Empty response from AI model")
 
-    def fallback_mcqs(self, prompt, difficulty, count):
-        """Fallback MCQ generation"""
-        return [{
-            'question_type': 'MCQ',
-            'content': f'MCQ about {prompt[:50]} (Q{i+1})',
-            'option_a': f'Option A for Q{i+1}',
-            'option_b': f'Option B for Q{i+1}',
-            'option_c': f'Option C for Q{i+1}',
-            'option_d': f'Option D for Q{i+1}',
-            'correct_option': random.choice(['A','B','C','D']),
-            'difficulty': difficulty
-        } for i in range(count)]
+            logger.debug(f"Raw AI Response: {ai_response[:500]}...")  # Log first 500 chars
 
-    def fallback_qnas(self, prompt, difficulty, count):
-        """Fallback QNA generation"""
-        return [{
-            'question_type': 'QNA',
-            'content': f'Explain {prompt[:50]} (Q{i+1})',
-            'difficulty': difficulty
-        } for i in range(count)]
+            # First try: Structured JSON parse
+            try:
+                parsed_data = self._extract_json(ai_response)
+                return parsed_data
+            except ValueError as e:
+                logger.warning(f"Primary JSON parse failed: {e}")
 
-    # def save_questions(self, test_id, teacher, questions):
-    #     """Save questions to database"""
-    #     try:
-    #         test = Test.objects.get(id=test_id, teacher=teacher)
-    #         Question.objects.bulk_create([
-    #             Question(
-    #                 test=test,
-    #                 teacher=teacher,
-    #                 **question
-    #             ) for question in questions
-    #         ])
-    #     except Test.DoesNotExist:
-    #         raise ValueError("Invalid test ID or you are not the owner")
-    #     except Exception as e:
-    #         raise Exception(f"Failed to save questions: {str(e)}")
+            # Fallback 1: Try direct JSON parse
+            try:
+                return json.loads(ai_response)
+            except json.JSONDecodeError:
+                pass
+
+            # Fallback 2: Manual content parsing
+            try:
+                return self._extract_questions_from_content(ai_response)
+            except Exception as e:
+                logger.warning(f"Content parsing failed: {e}")
+
+            # Final fallback: Return raw response
+            logger.error("All parsing strategies failed")
+            return {"mcqs": [], "qnas": []}
+
+        except Exception as e:
+            logger.error(f"Question generation failed: {traceback.format_exc()}")
+            raise ValueError("Failed to generate questions. Please try again.")
+
+    def _format_questions(self, raw_data, difficulty, topic):
+        """Convert raw AI response to model-compatible format"""
+        formatted = []
+        
+        # Process MCQs
+        for mcq in raw_data.get('mcqs', []):
+            if not all(k in mcq for k in ["content", "option_a", "option_b", 
+                    "option_c", "option_d", "correct_option"]):
+                logger.warning(f"Skipping invalid MCQ: {mcq}")
+                continue
+            try:
+                formatted.append({
+                    "question_type": "MCQ",
+                    "content": mcq['content'],
+                    "option_a": mcq.get('option_a', ''),
+                    "option_b": mcq.get('option_b', ''),
+                    "option_c": mcq.get('option_c', ''),
+                    "option_d": mcq.get('option_d', ''),
+                    "correct_option": mcq.get('correct_option', '').upper(),
+                    "difficulty": difficulty,
+                    "topic": topic
+                })
+            except KeyError as e:
+                logger.warning(f"Skipping invalid MCQ: Missing {str(e)}")
+
+        # Process QNAs
+        for qna in raw_data.get('qnas', []):
+            try:
+                formatted.append({
+                    "question_type": "QNA",
+                    "content": qna['content'],
+                    "option_a": None,
+                    "option_b": None,
+                    "option_c": None,
+                    "option_d": None,
+                    "correct_option": None,
+                    "difficulty": difficulty,
+                    "topic": topic
+                })
+            except KeyError as e:
+                logger.warning(f"Skipping invalid QNA: Missing {str(e)}")
+
+        if not formatted:
+            raise ValueError("No valid questions could be extracted")
+            
+        return formatted
+
+
+    def _extract_questions_from_content(self, content):
+        """Fallback parser for non-JSON responses"""
+        questions = {"mcqs": [], "qnas": []}
+        
+        # Improved regex patterns
+        mcq_pattern = r"\d+[\.\)]\s*(.+?)\n(a\)\s*.+?\n)b\)\s*(.+?)\nc\)\s*(.+?)\nd\)\s*(.+?)\n.*Answer:\s*([A-D])"
+        qna_pattern = r"\d+[\.\)]\s*(.+?)(?:\nAnswer:\s*(.+?))(?=\n\d+|\Z)"
+        
+        # MCQs
+        for match in re.finditer(mcq_pattern, content, re.DOTALL | re.IGNORECASE):
+            try:
+                question, a, b, c, d, answer = match.groups()
+                questions["mcqs"].append({
+                    "content": question.strip(),
+                    "option_a": a.strip(),
+                    "option_b": b.strip(),
+                    "option_c": c.strip(),
+                    "option_d": d.strip(),
+                    "correct_option": answer.upper()
+                })
+            except Exception as e:
+                logger.warning(f"Failed to parse MCQ: {str(e)}")
+
+        # QNAs
+        for match in re.finditer(qna_pattern, content, re.DOTALL):
+            try:
+                question, answer = match.groups()
+                questions["qnas"].append({
+                    "content": question.strip(),
+                    "answer": answer.strip() if answer else ""
+                })
+            except Exception as e:
+                logger.warning(f"Failed to parse QNA: {str(e)}")
+
+        return questions
 
 
 class SaveQuizView(APIView):
@@ -633,7 +747,7 @@ def enrolled_sessions_with_tests(request):
     serializer = SessionWithTestsSerializer(sessions, many=True)
     return Response(serializer.data)
 
-class SessionTestsView(APIView):
+class StudentSessionTestsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, session_id):
@@ -1365,7 +1479,7 @@ class TestDetailView(APIView):
         return Response({'message': 'Test deleted successfully.'}, status=status.HTTP_204_NO_CONTENT)
 
 
-class TeacherSessionDetailView(APIView):
+class DeleteTeacherSessionDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def delete(self, request, session_id):
@@ -1379,7 +1493,7 @@ class TeacherSessionDetailView(APIView):
 
         session.delete()
         return Response({"message": "Session deleted successfully."}, status=204)
-
+    
 
 class EnrolledStudentsView(APIView):
     permission_classes = [IsAuthenticated]
@@ -1930,3 +2044,67 @@ def teacher_sessions(request):
     sessions = Session.objects.filter(teacher=request.user)
     serializer = SessionSerializer(sessions, many=True)
     return Response(serializer.data)
+
+
+class SessionDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, session_id):
+        session = get_object_or_404(Session, id=session_id)
+
+        # Optional: limit access to teachers who created it or students enrolled
+        if request.user.role == 'teacher' and session.teacher != request.user:
+            return Response({"error": "Not allowed to view this session"}, status=status.HTTP_403_FORBIDDEN)
+
+        if request.user.role == 'student' and request.user not in session.enrolled_students.all():
+            return Response({"error": "You are not enrolled in this session"}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = SessionSerializer(session)
+        return Response(serializer.data)
+
+
+class NotificationViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def list(self, request):
+        notifications = Notification.objects.filter(
+            recipient=request.user
+        ).order_by('-created_at')
+        serializer = NotificationSerializer(notifications, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def unread(self, request):
+        notifications = Notification.objects.filter(
+            recipient=request.user,
+            is_read=False
+        ).order_by('-created_at')
+        serializer = NotificationSerializer(notifications, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['patch'])
+    def mark_as_read(self, request, pk=None):
+        notification = get_object_or_404(
+            Notification, 
+            pk=pk, 
+            recipient=request.user
+        )
+        notification.is_read = True
+        notification.save()
+        return Response({'status': 'marked as read'})
+    
+    @action(detail=False, methods=['post'])
+    def mark_all_read(self, request):
+        Notification.objects.filter(
+            recipient=request.user,
+            is_read=False
+        ).update(is_read=True)
+        return Response({'status': 'all marked as read'})
+    
+    @action(detail=False, methods=['get'])
+    def count(self, request):
+        count = Notification.objects.filter(
+            recipient=request.user,
+            is_read=False
+        ).count()
+        return Response({'unread_count': count})

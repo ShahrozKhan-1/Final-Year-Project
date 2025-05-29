@@ -430,3 +430,49 @@ body {
     width: 100%;
   }
 }
+
+
+/* Notification Center Styles */
+.notification-item {
+  transition: all 0.2s ease;
+}
+
+.notification-item:hover {
+  background-color: rgba(0, 123, 255, 0.05) !important;
+}
+
+.notification-item:last-child {
+  border-bottom: none !important;
+}
+
+/* Custom scrollbar for notification panel */
+.overflow-auto::-webkit-scrollbar {
+  width: 6px;
+}
+
+.overflow-auto::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.overflow-auto::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.overflow-auto::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Badge positioning */
+.position-relative .badge {
+  font-size: 0.7rem !important;
+  padding: 0.25rem 0.5rem !important;
+}
+
+/* Glass morphism effect for notification panel */
+.notification-panel {
+  backdrop-filter: blur(20px);
+  background-color: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}

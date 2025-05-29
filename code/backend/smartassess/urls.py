@@ -1,5 +1,11 @@
-from django.urls import path
+from django.urls import path, include
 from .views import *
+from rest_framework.routers import DefaultRouter
+
+
+
+router = DefaultRouter()
+router.register(r'notifications', NotificationViewSet, basename='notification')
 
 urlpatterns = [
     path('register/', RegisterView.as_view(), name='register'),
@@ -18,7 +24,7 @@ urlpatterns = [
     path('api/tests/<test_id>/set-time-limit/', SetTimeLimitView.as_view(), name='set-time-limit'),
     path('sessions/enrolled/', EnrolledSessionsView.as_view(), name='sessions-enrolled'),
     path("sessions/enrolled-with-tests/", enrolled_sessions_with_tests, name="enrolled-sessions-with-tests"),
-    path('sessions/<int:session_id>/tests/', SessionTestsView.as_view(), name='session-tests'),
+    path('sessions/<int:session_id>/tests/', StudentSessionTestsView.as_view(), name='session-tests'),
     path('student/attempt-test/<int:test_id>/', get_test_for_attempt, name='attempt-test'),
     path('student/submit-test/<int:test_id>/', SubmitTestView.as_view(), name='submit-test'),
     path('practice/generate-questions/', PracticeGenerateQuestionsView.as_view()),
@@ -27,7 +33,7 @@ urlpatterns = [
     path("teacher/session/<int:session_id>/tests/", TeacherSessionTestsView.as_view(), name="session-tests"),
     path('teacher-tests/', TeacherTestListView.as_view(), name='teacher-tests'),
     path('api/tests/<int:test_id>/', TestDetailView.as_view(), name='test-detail'),
-    path('api/sessions/<int:session_id>/', TeacherSessionDetailView.as_view(), name='teacher-session-detail'),
+    path('api/sessions/<int:session_id>/', DeleteTeacherSessionDetailView.as_view(), name='teacher-session-detail'),
     path('sessions/<int:session_id>/students/', EnrolledStudentsView.as_view(), name='enrolled-students'),
     # path('report/student/<int:student_id>/pdf/', StudentReportPDFView.as_view(), name='student_pdf_report'),
     path('session/<int:session_id>/detail/', session_detail, name='session-detail'),
@@ -38,6 +44,7 @@ urlpatterns = [
     path('teacher/attempts/<int:attempt_id>/download/', teacher_download_attempt_pdf),
     path('teacher/tests/<int:test_id>/attempts/', teacher_test_attempts), 
     path('teacher/session/<int:session_id>/results/', teacher_session_result),
-    path('teacher-sessions/', teacher_sessions)
-
+    path('teacher-sessions/', teacher_sessions),
+    path('sessions/<int:session_id>/', SessionDetailView.as_view(), name='session-detail'),
+    path('api/notifications/', include(router.urls)),
 ]

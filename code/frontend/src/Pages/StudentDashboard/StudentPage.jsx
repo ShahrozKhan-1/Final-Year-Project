@@ -12,11 +12,12 @@ import {
   BarChart2,
   CheckCircle,
   FileText,
-  Bell,
   Settings,
+  LogOut,
 } from "lucide-react"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "./dashboard-styles.css"
+import NotificationCenter from "../../Components/Notification"
 
 export default function StudentDashboard() {
   const [loading, setLoading] = useState(true)
@@ -129,6 +130,12 @@ export default function StudentDashboard() {
 
   return (
     <div className="dashboard-wrapper min-vh-100">
+      {/* Floating Background Elements */}
+      <div className="floating-elements">
+        {[...Array(6)].map((_, i) => (
+          <div key={i} className={`floating-element floating-element-${i + 1}`} />
+        ))}
+      </div>
       <div className="container-fluid">
         <div className="row">
           {/* Top Navigation */}
@@ -142,10 +149,7 @@ export default function StudentDashboard() {
               </div>
 
               <div className="d-flex align-items-center gap-3">
-                <div className="nav-item d-none d-md-flex align-items-center gap-2">
-                  <Bell size={18} />
-                  <span>Notifications</span>
-                </div>
+                <NotificationCenter userRole="student" />
                 <div className="nav-item d-none d-md-flex align-items-center gap-2">
                   <Settings size={18} />
                   <span>Settings</span>
@@ -156,6 +160,17 @@ export default function StudentDashboard() {
                   </div>
                   <span className="d-none d-md-inline">{userName}</span>
                 </div>
+                <button
+                  onClick={() => {
+                    localStorage.removeItem("access_token")
+                    localStorage.removeItem("refresh_token")
+                    navigate("/login")
+                  }}
+                  className="btn btn-outline-danger btn-sm d-flex align-items-center gap-2"
+                >
+                  <LogOut size={16} />
+                  <span className="d-none d-md-inline">Logout</span>
+                </button>
               </div>
             </div>
           </div>

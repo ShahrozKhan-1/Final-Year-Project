@@ -170,3 +170,53 @@ class AttemptedTestDetailSerializer(serializers.ModelSerializer):
 
 #     def get_duration_minutes(self, obj):
 #         return int((obj.end_time - obj.start_time).total_seconds() / 60)
+
+# serializers.py
+class NotificationSerializer(serializers.ModelSerializer):
+    notification_type_display = serializers.CharField(
+        source='get_notification_type_display', 
+        read_only=True
+    )
+    sender_name = serializers.SerializerMethodField()
+    content_object_info = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Notification
+        fields = [
+            'id',
+            'notification_type',
+            'notification_type_display',
+            'message',
+            'sender',
+            'sender_name',
+            'content_object',
+            'content_object_info',
+            'created_at',
+            'is_read'
+        ]
+        read_only_fields = fields
+    
+    def get_sender_name(self, obj):
+        return obj.sender.username if obj.sender else "System"
+    
+    def get_content_object_info(self, obj):
+        if not obj.content_object:
+            return None
+        
+        content_object = obj.content_object
+        if hasattr(content_object, 'title'):
+            return {
+                'id': content_object.id,
+                'title': content_object.title,
+                'type': content_object.__class__.__name__
+            }
+        elif hasattr(content_object, 'session_name'):
+            return {
+                'id': content_object.id,
+                'name': content_object.session_name,
+                'type': content_object.__class__.__name__
+            }
+        return {
+            'id': content_object.id,
+            'type': content_object.__class__.__name__
+        }

@@ -1,34 +1,35 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
-import { useUserRole } from "../auth"; // Your custom hook for user role
+import { useUserRole } from "../auth"; // Custom hook to get role
 
 // ProtectedRoute Component
 const ProtectedRoute = ({ roleRequired, children }) => {
-  const userRole = useUserRole(); // Get user role from custom hook
+  const userRole = useUserRole(); // Get role from localStorage or API
 
   if (userRole === null) {
-    // If no token or invalid token, redirect to login
     return <Navigate to="/login" />;
   }
 
   if (userRole !== roleRequired) {
-    // If the user does not have the required role, redirect to home or some other page
     return <Navigate to="/" />;
   }
 
-  return children; // Allow access to the protected component
+  return children;
 };
 
-// Your Pages
+// Pages
 const StudentPage = () => <div>Student Dashboard</div>;
 const TeacherPage = () => <div>Teacher Dashboard</div>;
 const AdminPage = () => <div>Admin Dashboard</div>;
 const Login = () => <div>Login Page</div>;
+const HomePage = () => <div>Welcome to SmartAssess</div>; // Add this
 
+// App
 function App() {
   return (
     <Router>
       <Routes>
+        <Route path="/" element={<HomePage />} />
         <Route path="/login" element={<Login />} />
         <Route
           path="/student-dashboard"

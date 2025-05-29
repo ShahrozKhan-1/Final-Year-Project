@@ -14,3 +14,5 @@ yt-dlp
 beautifulsoup4
 xhtml2pdf
 youtube_transcript_api 
+nltk
+tiktoken

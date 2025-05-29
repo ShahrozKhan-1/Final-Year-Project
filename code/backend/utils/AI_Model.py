@@ -47,6 +47,7 @@ def evaluate_with_AI(prompt, model=DEFAULT_MODEL, temperature=0.7, timeout=10):
 
         try:
             data = response.json()
+            print(f"AI API response: {data}")  # Debugging line to see the full response
         except json.JSONDecodeError as e:
             logger.error(f"🚫 JSON decode error: {e} — Response was: {repr(response.text)}")
             return None
