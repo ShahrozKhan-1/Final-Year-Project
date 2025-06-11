@@ -13,6 +13,11 @@ class RegisterSerializer(serializers.ModelSerializer):
         fields = ['email', 'username', 'password', 'role']
         extra_kwargs = {'password': {'write_only': True}}
         
+    def validate_role(self, value):
+        if value == "admin":
+            raise serializers.ValidationError("You cannot register as an admin.")
+        return value
+        
     def create(self, validated_data):
         user = User.objects.create_user(**validated_data)
         if user.role == 'teacher':
@@ -20,19 +25,39 @@ class RegisterSerializer(serializers.ModelSerializer):
             user.save()
         return user
     
+
 class SessionSerializer(serializers.ModelSerializer):
     pending_students = UserSerializer(many=True, read_only=True)
     enrolled_students = UserSerializer(many=True, read_only=True)
     teacher = UserSerializer(read_only=True)
+
+    total_tests = serializers.SerializerMethodField()
+    average_score = serializers.SerializerMethodField()
+    total_enrolled_students = serializers.SerializerMethodField()
 
     class Meta:
         model = Session
         fields = [
             'id', 'teacher', 'session_name', 'description', 
             'start_time', 'end_time', 'enrolled_students', 
-            'pending_students', 'created_at'
+            'pending_students', 'created_at',
+            'total_tests', 'average_score', 'total_enrolled_students',
         ]
-        read_only_fields = ('teacher', 'created_at', 'enrolled_students')        
+        read_only_fields = ('teacher', 'created_at', 'enrolled_students')
+
+    def get_total_tests(self, obj):
+        return obj.tests.count()
+
+    def get_average_score(self, obj):
+        test_attempts = TestAttempt.objects.filter(test__session=obj, is_submitted=True)
+        if not test_attempts.exists():
+            return 0.0
+        total_score = sum([attempt.score for attempt in test_attempts if attempt.score is not None])
+        return round(total_score / test_attempts.count(), 2)
+
+    def get_total_enrolled_students(self, obj):
+        return obj.enrolled_students.count()
+   
         
 class QuestionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -178,7 +203,7 @@ class NotificationSerializer(serializers.ModelSerializer):
         read_only=True
     )
     sender_name = serializers.SerializerMethodField()
-    content_object_info = serializers.SerializerMethodField()
+    content_object = serializers.SerializerMethodField()
     
     class Meta:
         model = Notification
@@ -190,7 +215,6 @@ class NotificationSerializer(serializers.ModelSerializer):
             'sender',
             'sender_name',
             'content_object',
-            'content_object_info',
             'created_at',
             'is_read'
         ]
@@ -199,7 +223,7 @@ class NotificationSerializer(serializers.ModelSerializer):
     def get_sender_name(self, obj):
         return obj.sender.username if obj.sender else "System"
     
-    def get_content_object_info(self, obj):
+    def get_content_object(self, obj):
         if not obj.content_object:
             return None
         

@@ -5,7 +5,7 @@ from rest_framework.routers import DefaultRouter
 
 
 router = DefaultRouter()
-router.register(r'notifications', NotificationViewSet, basename='notification')
+router.register(r'notifications', NotificationViewSet, basename='notifications')
 
 urlpatterns = [
     path('register/', RegisterView.as_view(), name='register'),
@@ -46,5 +46,8 @@ urlpatterns = [
     path('teacher/session/<int:session_id>/results/', teacher_session_result),
     path('teacher-sessions/', teacher_sessions),
     path('sessions/<int:session_id>/', SessionDetailView.as_view(), name='session-detail'),
-    path('api/notifications/', include(router.urls)),
+    path('api/', include(router.urls)),
+    path('api/notifications/count/', NotificationCountView.as_view(), name='notification-count'),
+    path('test-notification/', test_notification, name='test-notification'),
+    path("stats/", UserStatsView.as_view(), name="user-stats"),
 ]

@@ -63,27 +63,13 @@ export default function StudentDashboard() {
         if (!response.ok) throw new Error("Failed to fetch sessions")
 
         const data = await response.json()
+        console.log("Enrolled Sessions Data:", data)
         setSessions(data)
 
         // Get user name if available
         if (data.length > 0 && data[0].student && data[0].student.username) {
           setUserName(data[0].student.username)
         }
-
-        // Fetch tests for each session
-        const testData = {}
-        for (const session of data) {
-          const testRes = await fetch(`http://127.0.0.1:8000/sessions/${session.id}/tests/`, {
-            headers: { Authorization: `Bearer ${token}` },
-          })
-          if (testRes.ok) {
-            const tests = await testRes.json()
-            testData[session.id] = tests
-          } else {
-            testData[session.id] = []
-          }
-        }
-        setTestsBySession(testData)
       } catch (err) {
         console.error(err)
         if (err.response?.status === 401) {
@@ -150,15 +136,7 @@ export default function StudentDashboard() {
 
               <div className="d-flex align-items-center gap-3">
                 <NotificationCenter userRole="student" />
-                <div className="nav-item d-none d-md-flex align-items-center gap-2">
-                  <Settings size={18} />
-                  <span>Settings</span>
-                </div>
                 <div className="nav-item d-flex align-items-center gap-2">
-                  <div className="user-avatar">
-                    <User size={18} />
-                  </div>
-                  <span className="d-none d-md-inline">{userName}</span>
                 </div>
                 <button
                   onClick={() => {

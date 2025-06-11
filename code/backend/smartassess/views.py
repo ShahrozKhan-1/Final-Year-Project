@@ -1,5 +1,6 @@
 from django.shortcuts import render
 from django.conf import settings
+from django.utils.decorators import method_decorator
 from urllib.parse import urlparse, parse_qs
 from .models import * 
 from .serializers import *
@@ -42,6 +43,7 @@ from bs4 import BeautifulSoup
 import yt_dlp
 from django.core.files.storage import default_storage
 import fitz  # PyMuPDF for PDF
+from utils.notification import send_notification
 from rest_framework.generics import RetrieveAPIView
 import docx 
 import requests
@@ -102,12 +104,19 @@ class LoginView(APIView):
 
 
 
-class IsAdminUser(BasePermission):
+class IsCustomAdmin(BasePermission):
     def has_permission(self, request, view):
         return request.user.is_authenticated and request.user.role == "admin"
 
+class AdminOnlyView(APIView):
+    permission_classes = [IsAuthenticated, IsCustomAdmin]
+
+    def get(self, request):
+        return Response({"message": "Hello, Admin!"})
+
+
 class ApproveTeacherView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsCustomAdmin]
 
     def patch(self, request, teacher_id):
         teacher = get_object_or_404(User, id=teacher_id, role="teacher")
@@ -887,58 +896,70 @@ class SubmitTestView(APIView):
         question_ids = [int(qid) for qid in answers.keys()]
         questions = Question.objects.filter(id__in=question_ids, test_id=attempt.test_id).in_bulk(field_name='id')
 
-        evaluation_data = []
-        for qid in question_ids:
-            if qid not in questions:
-                raise ValueError(f"Invalid question ID: {qid}")
-            question = questions[qid]
-            student_answer = answers[str(qid)]
-            evaluation_data.append({
-                'question_id': qid,
-                'content': question.content,
-                'student_answer': student_answer,
-                'type': question.question_type,
-                'correct_option': question.correct_option,
-            })
-
-        evaluations = self._evaluate_with_AI(evaluation_data)
-
         correct_count = 0
         weak_topics = set()
         question_results = []
+        ai_input_data = []
 
-        for eval in evaluations:
-            qid = int(eval['question_id'])
+        for qid in question_ids:
+            if qid not in questions:
+                raise ValueError(f"Invalid question ID: {qid}")
+
             question = questions[qid]
+            student_answer = answers[str(qid)].strip()
 
-            is_correct = eval.get('is_correct', False)
-            feedback = eval.get('feedback', "")
-            weak_topics.update(eval.get('weak_topics', []))
-            model_answer = eval.get('model_answer')
+            is_correct = student_answer.upper() == question.correct_option.upper() if question.question_type == 'MCQ' else False
+
+            if not is_correct:
+                ai_input_data.append({
+                    'question_id': qid,
+                    'question_content': question.content,
+                    'question_type': question.question_type,
+                    'student_answer': student_answer,
+                    'correct_option': question.correct_option,
+                })
 
             if is_correct:
                 correct_count += 1
+
+            # Placeholder values, updated later if AI runs
+            question_results.append({
+                'question_id': qid,
+                'student_answer': student_answer,
+                'is_correct': is_correct,
+                'feedback': "Correct" if is_correct else "Pending...",
+                'model_answer': None
+            })
 
             StudentAnswer.objects.update_or_create(
                 attempt=attempt,
                 question=question,
                 defaults={
-                    'answer_text': answers[str(qid)],
+                    'answer_text': student_answer,
                     'is_correct': is_correct,
-                    'ai_feedback': feedback,
-                    'suggested_topics': ", ".join(eval.get('weak_topics', [])) if eval.get('weak_topics') else None
+                    'ai_feedback': "Correct" if is_correct else "",
+                    'suggested_topics': None
                 }
             )
 
-            question_results.append({
-                'question_id': qid,
-                'student_answer': answers[str(qid)],
-                'is_correct': is_correct,
-                'feedback': feedback,
-                'model_answer': model_answer
-            })
+        # Run AI only on incorrects
+        if ai_input_data:
+            ai_feedback_map = self._evaluate_with_AI(ai_input_data)
+            for result in question_results:
+                qid = result['question_id']
+                if qid in ai_feedback_map:
+                    feedback_data = ai_feedback_map[qid]
+                    result.update(feedback=feedback_data['feedback'], model_answer=feedback_data['model_answer'])
+                    weak_topics.update(feedback_data.get('weak_topics', []))
+
+                    # Update in DB
+                    StudentAnswer.objects.filter(attempt=attempt, question_id=qid).update(
+                        ai_feedback=feedback_data['feedback'],
+                        suggested_topics=", ".join(feedback_data.get('weak_topics', []))
+                    )
 
         score = round((correct_count / len(questions)) * 100, 2) if questions else 0.0
+
         return {
             'score': score,
             'correct_count': correct_count,
@@ -947,33 +968,33 @@ class SubmitTestView(APIView):
             'question_results': question_results
         }
 
-    def _evaluate_with_AI(self, evaluation_data):
-        if not evaluation_data:
-            raise ValueError("No data to evaluate")
 
-        prompt = """Evaluate all test answers and provide corrections where needed.
-For MCQs, indicate if the answer is correct. If incorrect, specify the correct option.
-For QNAs, provide brief feedback on accuracy and suggested improvements.
+    def _evaluate_with_AI(self, data):
+        prompt = """You are an AI tutor. For each question, provide:
+    - feedback on why the student's answer is wrong,
+    - a model answer (for QNA),
+    - a list of weak topics related to the error.
 
-Return JSON:
-{
+    Return JSON in this format:
+    {
     "evaluations": [
         {
-            "question_id": "id",
-            "is_correct": boolean,
-            "feedback": "string",
-            "weak_topics": ["list"],
-            "model_answer": "string" (for QNAs only)
-        }
+        "question_id": 123,
+        "feedback": "string",
+        "model_answer": "string or null",
+        "weak_topics": ["topic1", "topic2"]
+        },
+        ...
     ]
-}
+    }
 
-Questions:\n""" + json.dumps(evaluation_data, indent=2)
+    Questions:\n""" + json.dumps(data, indent=2)
 
         try:
             ai_response = evaluate_with_AI(prompt)
             if not ai_response:
                 raise ValueError("Empty AI response")
+
             ai_response = ai_response.strip()
             if ai_response.startswith('```json'):
                 ai_response = ai_response[7:-3].strip()
@@ -981,10 +1002,12 @@ Questions:\n""" + json.dumps(evaluation_data, indent=2)
                 ai_response = ai_response[3:-3].strip()
 
             parsed = json.loads(ai_response)
-            return parsed.get("evaluations", [])
+            return {int(e['question_id']): e for e in parsed.get("evaluations", [])}
+
         except Exception as e:
-            print(f"AI failed: {e}")
-            return self._simple_fallback_evaluation(evaluation_data)
+            print("AI fallback triggered:", e)
+            return self._simple_fallback_evaluation(data)
+
 
     def _simple_fallback_evaluation(self, evaluation_data):
         evaluations = []
@@ -1048,10 +1071,10 @@ Feedback:"""
         }
 
 
+@method_decorator(csrf_exempt, name='dispatch')
 class PracticeGenerateQuestionsView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
-
 
     def post(self, request):
         try:
@@ -1061,6 +1084,7 @@ class PracticeGenerateQuestionsView(APIView):
             file = request.FILES.get('file', None)
             mcq_count = int(request.data.get('mcq_count', 0))
             qna_count = int(request.data.get('qna_count', 0))
+            max_tokens = int(request.data.get('max_tokens', 3000))
 
             if mcq_count + qna_count == 0:
                 return Response({"error": "At least one question type must be requested"}, status=400)
@@ -1081,6 +1105,8 @@ class PracticeGenerateQuestionsView(APIView):
             if not base_text.strip():
                 return Response({"error": "No valid input (text, file, or URL) provided."}, status=400)
 
+            base_text = self.trim_text_by_tokens(base_text, max_tokens)
+
             questions = []
             if mcq_count > 0:
                 questions += self.generate_questions(base_text, difficulty, mcq_count, "mcq")
@@ -1088,9 +1114,9 @@ class PracticeGenerateQuestionsView(APIView):
                 questions += self.generate_questions(base_text, difficulty, qna_count, "qna")
 
             return Response({"questions": questions})
-        
+
         except Exception as e:
-            print(f"[PracticeGeneration Error]: {str(e)}")
+            logger.error(f"[PracticeGeneration Error]: {str(e)}")
             return Response({"error": "Failed to generate questions. Please try again."}, status=500)
 
     def generate_questions(self, prompt, difficulty, count, qtype):
@@ -1098,36 +1124,47 @@ class PracticeGenerateQuestionsView(APIView):
             "mcq": (
                 f"Generate {count} {difficulty} MCQs. Each must include: "
                 "'content', 'option_a', 'option_b', 'option_c', 'option_d', and 'correct_option'. "
-                "Respond only in JSON as: {\"questions\": [...]}"
+                "Respond only in JSON as: {\"questions\": [...]}."
             ),
             "qna": (
                 f"Generate {count} {difficulty} open-ended questions. "
-                "Respond only in JSON as: {\"questions\": [{\"content\": \"...\"}]}"
+                "Respond only in JSON as: {\"questions\": [{\"content\": \"...\"}]}."
             )
         }
 
-        full_prompt = f"{instruction[qtype]}\nBase it on the following:\n\"{prompt}\" and give result strictly in JSON format.\n"
+        full_prompt = (
+            f"You are an expert exam question generator.\n"
+            f"{instruction[qtype]}\n\n"
+            f"Here is the content:\n\"{prompt}\"\n\n"
+            f"Respond ONLY in JSON format."
+        )
 
         raw_response = evaluate_with_AI(full_prompt)
+
+        if not raw_response:
+            logger.warning("[AI Response] No response received from model.")
+            return self.fallback_questions(qtype, count, difficulty)
+
         try:
-            # Remove JSON code fences if present
             if raw_response.startswith("```json"):
                 raw_response = raw_response.split("```json")[1].split("```")[0].strip()
             elif raw_response.startswith("```"):
                 raw_response = raw_response.split("```")[1].split("```")[0].strip()
 
             questions_data = json.loads(raw_response)
+
             questions = questions_data.get("questions", [])
-            
+
             for q in questions:
                 q['question_type'] = "MCQ" if qtype == "mcq" else "QNA"
                 q['difficulty'] = difficulty
-            return questions
-        except json.JSONDecodeError as json_err:
-            print(f"[AI_Model JSON Decode Error]: {str(json_err)}")
-            print(f"[DEBUG] Raw Response that caused error: {repr(raw_response)}")
-            return self.fallback_questions(qtype, count, difficulty)
 
+            return questions
+
+        except json.JSONDecodeError as json_err:
+            logger.warning(f"[AI_Model JSON Decode Error]: {str(json_err)}")
+            logger.debug(f"[Raw AI Response]: {repr(raw_response)}")
+            return self.fallback_questions(qtype, count, difficulty)
 
     def fallback_questions(self, qtype, count, difficulty):
         if qtype == "mcq":
@@ -1149,20 +1186,24 @@ class PracticeGenerateQuestionsView(APIView):
             } for i in range(count)]
 
     def extract_text_from_file(self, file_path, filename):
-        if filename.endswith(".pdf"):
-            text = ""
-            with fitz.open(file_path) as doc:
-                for page in doc:
-                    text += page.get_text()
-            return text
-        elif filename.endswith(".docx"):
-            doc = docx.Document(file_path)
-            return "\n".join([para.text for para in doc.paragraphs])
-        elif filename.endswith(".txt"):
-            with open(file_path, 'r', encoding='utf-8') as f:
-                return f.read()
-        else:
-            raise ValueError("Unsupported file format")
+        try:
+            if filename.endswith(".pdf"):
+                text = ""
+                with fitz.open(file_path) as doc:
+                    for page in doc:
+                        text += page.get_text()
+                return text
+            elif filename.endswith(".docx"):
+                doc = docx.Document(file_path)
+                return "\n".join([para.text for para in doc.paragraphs])
+            elif filename.endswith(".txt"):
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            else:
+                raise ValueError("Unsupported file format")
+        except Exception as e:
+            logger.error(f"[File Extraction Error]: {str(e)}")
+            return ""
 
     def extract_text_from_url(self, url):
         try:
@@ -1172,7 +1213,7 @@ class PracticeGenerateQuestionsView(APIView):
             else:
                 return self.extract_text_from_webpage(url)
         except Exception as e:
-            print(f"[URL Extraction Error]: {str(e)}")
+            logger.error(f"[URL Extraction Error]: {str(e)}")
             return ""
 
     def extract_text_from_webpage(self, url):
@@ -1183,8 +1224,19 @@ class PracticeGenerateQuestionsView(APIView):
             text = soup.get_text(separator=" ", strip=True)
             return text
         except Exception as e:
-            print(f"[Webpage Extraction Error]: {str(e)}")
+            logger.error(f"[Webpage Extraction Error]: {str(e)}")
             return ""
+
+    def trim_text_by_tokens(self, text, max_tokens=3000):
+        words = word_tokenize(text,language='english', preserve_line=True)
+        if len(words) > max_tokens:
+            words = words[:max_tokens]
+        return " ".join(words)
+
+    def extract_text_from_youtube(self, url):
+        # Placeholder if you want to support YouTube transcript parsing
+        return "YouTube transcript support is not implemented."
+
 
 
 class PracticeCheckView(APIView):
@@ -2089,8 +2141,7 @@ class NotificationViewSet(viewsets.ViewSet):
             pk=pk, 
             recipient=request.user
         )
-        notification.is_read = True
-        notification.save()
+        notification.mark_as_read()  # Use model method
         return Response({'status': 'marked as read'})
     
     @action(detail=False, methods=['post'])
@@ -2103,8 +2154,70 @@ class NotificationViewSet(viewsets.ViewSet):
     
     @action(detail=False, methods=['get'])
     def count(self, request):
+        # FIXED: Use the correct model name
         count = Notification.objects.filter(
             recipient=request.user,
             is_read=False
         ).count()
         return Response({'unread_count': count})
+    
+class NotificationCountView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        count = Notification.objects.filter(  # Fixed model name
+            recipient=request.user,
+            is_read=False
+        ).count()
+        return Response({'unread_count': count})
+    
+    
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def test_notification(request):
+    send_notification(
+        recipient=request.user,
+        notification_type='test',
+        message='Test notification from server',
+        content_object=request.user
+    )
+    return Response({"status": "Test notification sent"})
+
+
+class UserStatsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+
+        if user.role == 'student':
+            test_attempts = TestAttempt.objects.filter(student=user, is_submitted=True)
+            sessions = Session.objects.filter(students=user)
+
+            stats = {
+                "role": "student",
+                "total_sessions_enrolled": sessions.count(),
+                "total_tests_attempted": test_attempts.count(),
+                "average_score": round(test_attempts.aggregate(avg=Avg("score"))["avg"] or 0, 2),
+            }
+
+        elif user.role == 'teacher':
+            sessions = Session.objects.filter(teacher=user)
+            tests = Test.objects.filter(teacher=user)
+            test_ids = tests.values_list("id", flat=True)
+            attempts = TestAttempt.objects.filter(test_id__in=test_ids, is_submitted=True)
+
+            students_count = sessions.values("students").distinct().count()
+
+            stats = {
+                "role": "teacher",
+                "total_sessions_created": sessions.count(),
+                "total_tests_created": tests.count(),
+                "total_students_enrolled": students_count,
+                "average_student_score": round(attempts.aggregate(avg=Avg("score"))["avg"] or 0, 2),
+            }
+
+        else:
+            stats = {"detail": "User role not recognized."}
+
+        return Response(stats)

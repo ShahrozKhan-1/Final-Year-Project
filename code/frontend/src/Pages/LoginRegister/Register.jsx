@@ -177,7 +177,6 @@ const Register = () => {
                   >
                     <option value="student">Student</option>
                     <option value="teacher">Teacher</option>
-                    <option value="admin">Admin</option>
                   </select>
                 </div>
               </motion.div>
@@ -244,35 +243,7 @@ const Register = () => {
                   alt="Illustration"
                   className="img-fluid mb-4"
                 />
-                {/* <h3 className="fw-bold mb-2">Join Our Community</h3>
-                <p className="text-light">Access AI-powered assessments and improve learning outcomes</p> */}
               </motion.div>
-
-              {/* <motion.div
-                className="features-list"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.6 }}
-              >
-                <div className="d-flex align-items-center mb-3">
-                  <div className="feature-icon-circle me-3">
-                    <CheckCircle size={16} />
-                  </div>
-                  <span>AI-powered quiz generation</span>
-                </div>
-                <div className="d-flex align-items-center mb-3">
-                  <div className="feature-icon-circle me-3">
-                    <CheckCircle size={16} />
-                  </div>
-                  <span>Automatic grading and feedback</span>
-                </div>
-                <div className="d-flex align-items-center">
-                  <div className="feature-icon-circle me-3">
-                    <CheckCircle size={16} />
-                  </div>
-                  <span>Comprehensive analytics dashboard</span>
-                </div>
-              </motion.div> */}
             </div>
           </div>
         </div>

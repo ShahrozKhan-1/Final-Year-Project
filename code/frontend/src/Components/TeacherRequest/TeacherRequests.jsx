@@ -194,12 +194,6 @@ const TeacherRequests = () => {
                         </div>
                       </div>
                       <div className="nav-actions">
-                        <button className="nav-action-btn">
-                          <Bell size={18} />
-                        </button>
-                        <button className="nav-action-btn">
-                          <Settings size={18} />
-                        </button>
                         <button onClick={handleLogout} className="nav-action-btn logout-btn">
                           <LogOut size={18} />
                         </button>
@@ -234,18 +228,6 @@ const TeacherRequests = () => {
                       <h1 className="hero-title">Manage Student Enrollments</h1>
                       <p className="hero-subtitle">Review and approve student enrollment requests for your sessions</p>
                     </div>
-                    <div className="col-md-4 text-md-end">
-                      <div className="hero-actions">
-                        <button onClick={fetchSessions} className="btn btn-outline-primary hero-btn">
-                          <RefreshCw size={18} className="me-2" />
-                          Refresh
-                        </button>
-                        <button className="btn btn-primary hero-btn">
-                          <Download size={18} className="me-2" />
-                          Export Data
-                        </button>
-                      </div>
-                    </div>
                   </div>
                 </div>
               </motion.div>
@@ -269,8 +251,6 @@ const TeacherRequests = () => {
                           <p className="stat-label">Total Sessions</p>
                         </div>
                         <div className="stat-trend">
-                          <Calendar size={16} />
-                          <span>Active</span>
                         </div>
                       </div>
                     </div>
@@ -283,47 +263,11 @@ const TeacherRequests = () => {
                           <h3 className="stat-number">{totalPendingRequests}</h3>
                           <p className="stat-label">Pending Requests</p>
                         </div>
-                        <div className="stat-trend">
-                          <AlertCircle size={16} />
-                          <span>Awaiting Review</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="col-md-3">
-                      <div className="stat-card-redesign stat-success">
-                        <div className="stat-icon">
-                          <UserCheck size={24} />
-                        </div>
-                        <div className="stat-content">
-                          <h3 className="stat-number">24</h3>
-                          <p className="stat-label">Approved Today</p>
-                        </div>
-                        <div className="stat-trend">
-                          <CheckCircle size={16} />
-                          <span>Processed</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="col-md-3">
-                      <div className="stat-card-redesign stat-danger">
-                        <div className="stat-icon">
-                          <UserX size={24} />
-                        </div>
-                        <div className="stat-content">
-                          <h3 className="stat-number">3</h3>
-                          <p className="stat-label">Rejected Today</p>
-                        </div>
-                        <div className="stat-trend">
-                          <XCircle size={16} />
-                          <span>Declined</span>
-                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </motion.div>
-
-              {/* Filters Section */}
               <motion.div
                 className="filters-section"
                 initial={{ opacity: 0, y: 20 }}

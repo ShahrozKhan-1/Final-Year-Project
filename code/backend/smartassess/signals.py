@@ -2,6 +2,9 @@ from django.db.models.signals import m2m_changed, post_save
 from django.dispatch import receiver
 from utils.notification import send_notification
 from .models import Test, TestAttempt, Session, User
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Notify teacher when student requests enrollment
 @receiver(m2m_changed, sender=Session.pending_students.through)

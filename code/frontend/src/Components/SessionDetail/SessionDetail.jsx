@@ -224,18 +224,11 @@ export default function SessionDetails() {
                         </div>
                         <div className="user-info d-none d-md-block">
                           <span className="user-name">{userName}</span>
-                          <span className="user-role">Student</span>
                         </div>
                       </div>
                       <div className="nav-actions">
-                        <button className="nav-action-btn">
-                          <Bell size={18} />
-                        </button>
-                        <button className="nav-action-btn">
-                          <Settings size={18} />
-                        </button>
                         <button onClick={handleLogout} className="nav-action-btn logout-btn">
-                          <LogOut size={18} />
+                          <LogOut size={18} /> 
                         </button>
                       </div>
                     </div>
@@ -274,84 +267,11 @@ export default function SessionDetails() {
                       <div className="hero-actions">
                         <button
                           onClick={() => navigate("/student/attempted-tests")}
-                          className="btn btn-outline-primary hero-btn"
+                          className="btn btn-primary hero-btn"
                         >
                           <BarChart2 size={18} className="me-2" />
                           View Progress
                         </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-
-              {/* Session Stats */}
-              <motion.div
-                className="stats-section"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: 0.4 }}
-              >
-                <div className="container">
-                  <div className="row g-4">
-                    <div className="col-md-3">
-                      <div className="stat-card-redesign stat-primary">
-                        <div className="stat-icon">
-                          <FileText size={24} />
-                        </div>
-                        <div className="stat-content">
-                          <h3 className="stat-number">{tests.length}</h3>
-                          <p className="stat-label">Available Tests</p>
-                        </div>
-                        <div className="stat-trend">
-                          <TrendingUp size={16} />
-                          <span>+2 this week</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="col-md-3">
-                      <div className="stat-card-redesign stat-success">
-                        <div className="stat-icon">
-                          <Trophy size={24} />
-                        </div>
-                        <div className="stat-content">
-                          <h3 className="stat-number">85%</h3>
-                          <p className="stat-label">Average Score</p>
-                        </div>
-                        <div className="stat-trend">
-                          <Star size={16} />
-                          <span>Excellent</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="col-md-3">
-                      <div className="stat-card-redesign stat-warning">
-                        <div className="stat-icon">
-                          <Timer size={24} />
-                        </div>
-                        <div className="stat-content">
-                          <h3 className="stat-number">12</h3>
-                          <p className="stat-label">Tests Completed</p>
-                        </div>
-                        <div className="stat-trend">
-                          <Zap size={16} />
-                          <span>On track</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="col-md-3">
-                      <div className="stat-card-redesign stat-info">
-                        <div className="stat-icon">
-                          <Users size={24} />
-                        </div>
-                        <div className="stat-content">
-                          <h3 className="stat-number">24</h3>
-                          <p className="stat-label">Class Rank</p>
-                        </div>
-                        <div className="stat-trend">
-                          <Target size={16} />
-                          <span>Top 20%</span>
-                        </div>
                       </div>
                     </div>
                   </div>
@@ -374,14 +294,8 @@ export default function SessionDetails() {
                           Ready to Test Your Knowledge?
                         </h2>
                         <p className="section-subtitle-redesign">
-                          Choose from {tests.length} available assessments designed to challenge and improve your skills
+                          Choose from below available assessments designed to challenge and improve your skills
                         </p>
-                      </div>
-                      <div className="section-actions">
-                        <button className="btn btn-outline-secondary">
-                          <Download size={16} className="me-2" />
-                          Export Results
-                        </button>
                       </div>
                     </div>
                   </motion.div>
@@ -417,10 +331,6 @@ export default function SessionDetails() {
                         <button onClick={handleBackToDashboard} className="btn btn-primary">
                           <ArrowLeft size={16} className="me-2" />
                           Return to Dashboard
-                        </button>
-                        <button className="btn btn-outline-primary">
-                          <Bell size={16} className="me-2" />
-                          Notify When Available
                         </button>
                       </div>
                     </motion.div>
@@ -553,13 +463,6 @@ export default function SessionDetails() {
                               <span>Progress Tracking</span>
                             </div>
                           </div>
-                          <button
-                            onClick={() => navigate("/student/performance")}
-                            className="btn btn-primary insights-btn"
-                          >
-                            <BarChart2 size={18} className="me-2" />
-                            View Analytics Dashboard
-                          </button>
                         </div>
                       </div>
                       <div className="col-md-4 d-none d-md-block">

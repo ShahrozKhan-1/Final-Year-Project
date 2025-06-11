@@ -42,6 +42,29 @@ const TeacherSessionPage = () => {
 
   const { role, loading: roleLoading } = useUserRole()
 
+  const [stats, setStats] = useState({
+    total_tests: 0,
+    enrolled_students: 0,
+    active_tests: 0,
+    average_score: 0,
+  });
+
+  useEffect(() => {
+    const token = localStorage.getItem('access_token');
+    axios
+      .get(`http://127.0.0.1:8000/stats/`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+      .then((response) => {
+        setStats(response.data);
+      })
+      .catch((error) => {
+        console.error("Error fetching stats:", error);
+      });
+  }, [sessionId]);
+
   useEffect(() => {
     if (!roleLoading && role !== "teacher") {
       navigate("/unauthorized")
@@ -187,14 +210,6 @@ const TeacherSessionPage = () => {
                   <BookOpen size={16} />
                   <span className="d-none d-md-inline">Dashboard</span>
                 </button>
-                <div className="nav-item d-none d-md-flex align-items-center gap-2">
-                  <Bell size={18} />
-                  <span>Notifications</span>
-                </div>
-                <div className="nav-item d-none d-md-flex align-items-center gap-2">
-                  <Settings size={18} />
-                  <span>Settings</span>
-                </div>
                 <button
                   onClick={handleLogout}
                   className="btn btn-outline-danger btn-sm d-flex align-items-center gap-2"
@@ -306,7 +321,7 @@ const TeacherSessionPage = () => {
                     </div>
                     <div className="stat-content">
                       <p className="stat-title">Avg. Score</p>
-                      <h3 className="stat-value">87%</h3>
+                      <h3 className="stat-value"> {sessionInfo.average_score} </h3>
                     </div>
                   </motion.div>
                 </div>
@@ -316,10 +331,10 @@ const TeacherSessionPage = () => {
               <div className="mb-5">
                 <div className="section-header mb-4">
                   <h2 className="section-title">
-                    <BookOpen size={24} className="me-2" />
-                    Tests in This Session
+                    <BookOpen size={24} className="me-2 " />
+                    Tests in This Session  
                   </h2>
-                  <span className="section-count">{tests.length} tests</span>
+                  <span className="ms-2 section-count">{tests.length} tests</span>
                 </div>
 
                 {tests.length === 0 ? (
@@ -488,11 +503,11 @@ const TeacherSessionPage = () => {
 
                             <div className="student-stats">
                               <div className="student-stat">
-                                <div className="stat-value">12</div>
+                                <div className="stat-value"> {stats.total_tests} </div>
                                 <div className="stat-label">Tests Taken</div>
                               </div>
                               <div className="student-stat">
-                                <div className="stat-value">85%</div>
+                                <div className="stat-value"> {stats.average_score} %</div>
                                 <div className="stat-label">Avg Score</div>
                               </div>
                               <div className="student-stat">
@@ -500,17 +515,6 @@ const TeacherSessionPage = () => {
                                 <div className="stat-label">Grade</div>
                               </div>
                             </div>
-                          </div>
-
-                          <div className="student-card-footer">
-                            <button className="btn btn-outline-primary btn-sm d-flex align-items-center gap-2">
-                              <BarChart2 size={14} />
-                              View Progress
-                            </button>
-                            <button className="btn btn-outline-secondary btn-sm d-flex align-items-center gap-2">
-                              <Mail size={14} />
-                              Message
-                            </button>
                           </div>
                         </div>
                       </motion.div>

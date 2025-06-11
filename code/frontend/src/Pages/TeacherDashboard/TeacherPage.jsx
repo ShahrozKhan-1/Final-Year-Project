@@ -141,16 +141,6 @@ export default function TeacherDashboard() {
 
               <div className="d-flex align-items-center gap-3">
                 <NotificationCenter userRole="teacher" />
-                <div className="nav-item d-none d-md-flex align-items-center gap-2">
-                  <Settings size={18} />
-                  <span>Settings</span>
-                </div>
-                <div className="nav-item d-flex align-items-center gap-2">
-                  <div className="user-avatar">
-                    <User size={18} />
-                  </div>
-                  <span className="d-none d-md-inline">{userName}</span>
-                </div>
                 <button
                   onClick={() => {
                     localStorage.removeItem("access_token")
@@ -364,6 +354,14 @@ export default function TeacherDashboard() {
                           >
                             <Settings size={16} />
                             Manage
+                          </button>
+
+                          <button
+                            onClick={() => setConfirmDeleteId(session.id)}
+                            className="btn btn-outline-danger d-flex align-items-center gap-2"
+                          >
+                            <Trash2 size={16} />
+                            Delete
                           </button>
                         </div>
                       </div>
