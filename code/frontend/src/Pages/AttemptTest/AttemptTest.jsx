@@ -4,6 +4,8 @@ import { useParams, useNavigate } from "react-router-dom"
 import { useUserRole } from "../../auth"
 import { motion, AnimatePresence } from "framer-motion"
 import "./attempt-test-styles.css"
+// import "../../global.css"
+
 
 const QUESTION_TYPES = {
   MCQ: "MCQ",

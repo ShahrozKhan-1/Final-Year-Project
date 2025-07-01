@@ -6,7 +6,7 @@ import Login from "./Pages/LoginRegister/Login";
 import Register from "./Pages/LoginRegister/Register";
 import StudentPage from "./Pages/StudentDashboard/StudentPage";
 import TeacherPage from "./Pages/TeacherDashboard/TeacherPage";
-import AdminPage from "./Pages/AdminPage";
+import AdminPage from "./Pages/AdminPage/AdminPage"; 
 import CreateSession from "./Components/CreateSession";
 import EnrollSession from "./Components/EnrollSession";
 import TeacherRequests from "./Components/TeacherRequest/TeacherRequests";

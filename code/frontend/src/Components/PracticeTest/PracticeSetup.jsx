@@ -25,6 +25,8 @@ import {
 } from "lucide-react"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "./practice-test-styles.css"
+// import "../../global.css"
+
 
 const PracticeTest = () => {
   const [topic, setTopic] = useState("")

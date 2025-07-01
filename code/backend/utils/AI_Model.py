@@ -4,7 +4,7 @@ import logging
 from django.conf import settings
 
 AI_Model_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "nvidia/llama-3.1-nemotron-ultra-253b-v1:free"
+DEFAULT_MODEL = "mistralai/mistral-small-3.2-24b-instruct:free"
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ def evaluate_with_AI(prompt, model=DEFAULT_MODEL, temperature=0.7, timeout=10):
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost",
     }
 
     payload = {
@@ -37,6 +38,7 @@ def evaluate_with_AI(prompt, model=DEFAULT_MODEL, temperature=0.7, timeout=10):
         "temperature": temperature,
     }
 
+    print(f"sending prompt to AI API: {payload}")  # Debugging line to see the full payload
     try:
         response = requests.post(AI_Model_API_URL, headers=headers, json=payload, timeout=timeout)
         response.raise_for_status()

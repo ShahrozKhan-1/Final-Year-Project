@@ -22,6 +22,8 @@ import {
 } from "lucide-react"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "./teacher-dashboard-styles.css"
+// import "../../global.css"
+
 import NotificationCenter from "../../Components/Notification"
 
 const StatCard = ({ title, value, color, icon }) => {

@@ -28,6 +28,8 @@ import {
 } from "lucide-react"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "./teacher-session-styles.css"
+// import "../../global.css"
+
 
 const TeacherSessionPage = () => {
   const { sessionId } = useParams()

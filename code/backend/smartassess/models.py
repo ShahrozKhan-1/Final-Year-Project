@@ -18,6 +18,7 @@ class User(AbstractUser):
     email = models.EmailField(unique=True)
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='student')
     is_verified = models.BooleanField(default=False)
+    date_joined = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
         if self.role == 'admin' and User.objects.filter(role='admin').exclude(pk=self.pk).exists():

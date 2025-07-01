@@ -17,6 +17,8 @@ import {
 } from "lucide-react"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "./dashboard-styles.css"
+// import "../../global.css"
+
 import NotificationCenter from "../../Components/Notification"
 
 export default function StudentDashboard() {

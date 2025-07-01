@@ -29,6 +29,8 @@ import {
 } from "lucide-react"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "./teacher-requests-styles.css"
+// import "../../global.css"
+
 
 const TeacherRequests = () => {
   const [sessions, setSessions] = useState([])

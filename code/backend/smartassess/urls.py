@@ -50,4 +50,7 @@ urlpatterns = [
     path('api/notifications/count/', NotificationCountView.as_view(), name='notification-count'),
     path('test-notification/', test_notification, name='test-notification'),
     path("stats/", UserStatsView.as_view(), name="user-stats"),
+    path('api/admin/sessions/', AdminSessionListView.as_view(), name='admin-sessions'),
+    path('api/admin/users/', AdminUserListView.as_view(), name='admin-users'),
+    path('api/admin/users/<int:user_id>/', AdminUserDeleteView.as_view(), name='admin-delete-user'),
 ]

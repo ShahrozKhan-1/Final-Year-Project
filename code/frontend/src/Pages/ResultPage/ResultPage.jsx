@@ -4,6 +4,8 @@ import axios from "axios"
 import { useUserRole } from "../../auth"
 import { motion, AnimatePresence } from "framer-motion"
 import "./result-page-styles.css"
+// import "../../global.css"
+
 
 const ResultPage = () => {
   const { attemptId } = useParams()

@@ -31,6 +31,8 @@ import {
 } from "lucide-react"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "./session-details-styles.css"
+// import "../../global.css"
+
 
 export default function SessionDetails() {
   const { sessionId } = useParams()

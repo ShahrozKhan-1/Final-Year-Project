@@ -1,5 +1,3 @@
-"use client"
-
 import { useEffect, useState } from "react"
 import { BarChart, Bar, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, Legend, ResponsiveContainer } from "recharts"
 import axios from "axios"

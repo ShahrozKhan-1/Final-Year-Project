@@ -4,7 +4,7 @@ from .models import *
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", 'username', 'email', 'role', 'is_verified']
+        fields = ["id", 'username', 'email', 'role', 'is_verified', 'date_joined']
         
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -244,3 +244,28 @@ class NotificationSerializer(serializers.ModelSerializer):
             'id': content_object.id,
             'type': content_object.__class__.__name__
         }
+
+class TeacherInfoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'email']
+
+class TestInfoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Test
+        fields = ['id', 'title', 'created_at']
+
+class AdminSessionSerializer(serializers.ModelSerializer):
+    tests = TestInfoSerializer(many=True, read_only=True)
+    teacher = TeacherInfoSerializer()
+
+    class Meta:
+        model = Session
+        fields = ['id', 'session_name', 'teacher', 'tests']
+
+        
+class UserListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'role', 'is_verified', 'date_joined']
+    

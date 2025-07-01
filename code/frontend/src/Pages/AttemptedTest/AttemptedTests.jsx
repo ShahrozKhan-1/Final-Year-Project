@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import "./attempted-test-styles.css"
+// import "../../global.css"
+
 
 export default function AttemptedTests() {
   const [attempts, setAttempts] = useState([])
+  const [filteredAttempts, setFilteredAttempts] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [searchTerm, setSearchTerm] = useState("")
-  const [sortBy, setSortBy] = useState("date")
   const [filterBy, setFilterBy] = useState("all")
+  const [sortBy, setSortBy] = useState("date")
   const token = localStorage.getItem("access_token")
   const navigate = useNavigate()
 
@@ -33,6 +36,7 @@ export default function AttemptedTests() {
 
         const data = await response.json()
         setAttempts(data)
+        setFilteredAttempts(data)
         setError(null)
       } catch (err) {
         console.error("Error fetching attempts:", err)
@@ -45,12 +49,60 @@ export default function AttemptedTests() {
     fetchAttempts()
   }, [token, navigate])
 
+  // Filter and search logic
+  useEffect(() => {
+    let filtered = [...attempts]
+
+    // Search filter
+    if (searchTerm) {
+      filtered = filtered.filter(
+        (attempt) =>
+          attempt.test_title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          attempt.session_name?.toLowerCase().includes(searchTerm.toLowerCase()),
+      )
+    }
+
+    // Performance filter
+    if (filterBy !== "all") {
+      filtered = filtered.filter((attempt) => {
+        const score = typeof attempt.score === "number" ? attempt.score : 0
+        switch (filterBy) {
+          case "excellent":
+            return score >= 90
+          case "good":
+            return score >= 70 && score < 90
+          case "average":
+            return score >= 50 && score < 70
+          case "poor":
+            return score < 50
+          default:
+            return true
+        }
+      })
+    }
+
+    // Sort
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case "score":
+          return (b.score || 0) - (a.score || 0)
+        case "title":
+          return (a.test_title || "").localeCompare(b.test_title || "")
+        case "date":
+        default:
+          return new Date(b.submitted_at || b.created_at) - new Date(a.submitted_at || a.created_at)
+      }
+    })
+
+    setFilteredAttempts(filtered)
+  }, [attempts, searchTerm, filterBy, sortBy])
+
   const handleView = (attemptId) => {
     if (!attemptId) {
       console.error("Attempt ID is undefined")
       return
     }
-    navigate(`/student/attempted-tests/${attemptId}`)
+    navigate(`/result-page/${attemptId}`)
   }
 
   const handleDownloadPDF = async (attemptId, testTitle) => {
@@ -93,64 +145,39 @@ export default function AttemptedTests() {
 
   const getScoreColor = (score) => {
     if (score >= 90) return "excellent"
-    if (score >= 80) return "good"
-    if (score >= 70) return "average"
-    if (score >= 60) return "below-average"
+    if (score >= 70) return "good"
+    if (score >= 50) return "average"
     return "poor"
   }
 
   const getScoreIcon = (score) => {
     if (score >= 90) return "🏆"
-    if (score >= 80) return "🎯"
-    if (score >= 70) return "📈"
-    if (score >= 60) return "📊"
-    return "📉"
+    if (score >= 70) return "🎯"
+    if (score >= 50) return "📈"
+    return "📊"
   }
 
-  const filteredAndSortedAttempts = attempts
-    .filter((attempt) => {
-      const matchesSearch =
-        attempt.test_title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        attempt.session_name?.toLowerCase().includes(searchTerm.toLowerCase())
+  const getPerformanceStats = () => {
+    if (attempts.length === 0) return { total: 0, average: 0 }
+    const total = attempts.length
+    const average = attempts.reduce((sum, attempt) => sum + (attempt.score || 0), 0) / total
+    return { total, average: Math.round(average * 10) / 10 }
+  }
 
-      if (filterBy === "all") return matchesSearch
-      if (filterBy === "excellent") return matchesSearch && attempt.score >= 90
-      if (filterBy === "good") return matchesSearch && attempt.score >= 70 && attempt.score < 90
-      if (filterBy === "needs-improvement") return matchesSearch && attempt.score < 70
-
-      return matchesSearch
-    })
-    .sort((a, b) => {
-      if (sortBy === "date") return new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0)
-      if (sortBy === "score") return (b.score || 0) - (a.score || 0)
-      if (sortBy === "title") return (a.test_title || "").localeCompare(b.test_title || "")
-      return 0
-    })
+  const stats = getPerformanceStats()
 
   if (loading) {
     return (
-      <div className="attempted-tests-page">
+      <div className="attempted-tests-loading">
         <div className="floating-shapes">
           <div className="shape shape-1"></div>
           <div className="shape shape-2"></div>
           <div className="shape shape-3"></div>
-          <div className="shape shape-4"></div>
-          <div className="shape shape-5"></div>
-          <div className="shape shape-6"></div>
         </div>
-
-        <div className="container-fluid">
-          <div className="row justify-content-center">
-            <div className="col-12">
-              <div className="loading-container">
-                <div className="loading-content">
-                  <div className="loading-spinner"></div>
-                  <h3>Loading Your Test History</h3>
-                  <p>Fetching your attempted tests...</p>
-                </div>
-              </div>
-            </div>
-          </div>
+        <div className="loading-content">
+          <div className="loading-spinner"></div>
+          <h2>Loading Your Test History</h2>
+          <p>Retrieving your attempted tests...</p>
         </div>
       </div>
     )
@@ -158,258 +185,167 @@ export default function AttemptedTests() {
 
   if (error) {
     return (
-      <div className="attempted-tests-page">
-        <div className="floating-shapes">
-          <div className="shape shape-1"></div>
-          <div className="shape shape-2"></div>
-          <div className="shape shape-3"></div>
-          <div className="shape shape-4"></div>
-          <div className="shape shape-5"></div>
-          <div className="shape shape-6"></div>
-        </div>
-
-        <div className="container-fluid">
-          <div className="row justify-content-center">
-            <div className="col-12">
-              <div className="error-container">
-                <div className="error-content">
-                  <div className="error-icon">⚠️</div>
-                  <h3>Error Loading Tests</h3>
-                  <p>{error}</p>
-                  <button onClick={() => window.location.reload()} className="btn btn-primary">
-                    Try Again
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+      <div className="attempted-tests-error">
+        <div className="error-content">
+          <div className="error-icon">❌</div>
+          <h2>Something Went Wrong</h2>
+          <p>{error}</p>
+          <button className="retry-button" onClick={() => window.location.reload()}>
+            Try Again
+          </button>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="attempted-tests-page">
-      <div className="floating-shapes">
-        <div className="shape shape-1"></div>
-        <div className="shape shape-2"></div>
-        <div className="shape shape-3"></div>
-        <div className="shape shape-4"></div>
-        <div className="shape shape-5"></div>
-        <div className="shape shape-6"></div>
+    <div className="attempted-tests-container">
+      {/* Floating background elements */}
+      <div className="floating-elements">
+        <div className="float float-1"></div>
+        <div className="float float-2"></div>
+        <div className="float float-3"></div>
+        <div className="float float-4"></div>
       </div>
 
-      <div className="container-fluid">
-        {/* Header Section */}
-        <div className="row">
-          <div className="col-12">
-            <div className="page-header">
-              <div className="header-gradient"></div>
-              <div className="header-pattern"></div>
-              <div className="header-content">
-                <div className="row align-items-center">
-                  <div className="col-lg-8">
-                    <div className="header-text">
-                      <h1 className="page-title">
-                        <i className="fas fa-history me-3"></i>
-                        Test History
-                      </h1>
-                      <p className="page-subtitle">View and download your completed test attempts</p>
-                    </div>
+      {/* Header */}
+      <div className="attempted-tests-header">
+        <div className="header-pattern"></div>
+        <div className="container">
+          <div className="row align-items-center">
+            <div className="col-md-8">
+              <h1 className="page-title">Test History</h1>
+              <p className="page-subtitle">Review your attempted tests and track your progress</p>
+            </div>
+            <div className="col-md-4">
+              <div className="stats-cards">
+                <div className="stat-card">
+                  <div className="stat-icon">📚</div>
+                  <div className="stat-info">
+                    <div className="stat-value">{stats.total}</div>
+                    <div className="stat-label">Tests Taken</div>
                   </div>
-                  <div className="col-lg-4">
-                    <div className="header-stats">
-                      <div className="row g-3">
-                        <div className="col-6">
-                          <div className="stat-card">
-                            <div className="stat-number">{attempts.length}</div>
-                            <div className="stat-label">Total Tests</div>
-                          </div>
-                        </div>
-                        <div className="col-6">
-                          <div className="stat-card">
-                            <div className="stat-number">
-                              {attempts.length > 0
-                                ? Math.round(attempts.reduce((sum, a) => sum + (a.score || 0), 0) / attempts.length)
-                                : 0}
-                              %
-                            </div>
-                            <div className="stat-label">Avg Score</div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-icon">📊</div>
+                  <div className="stat-info">
+                    <div className="stat-value">{stats.average}%</div>
+                    <div className="stat-label">Avg Score</div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Controls Section */}
-        <div className="row mb-4">
-          <div className="col-12">
-            <div className="controls-card">
-              <div className="row align-items-center g-3">
-                <div className="col-lg-6">
-                  <div className="search-container">
-                    <div className="input-group">
-                      <span className="input-group-text">
-                        <i className="fas fa-search"></i>
-                      </span>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="Search tests or sessions..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </div>
-                <div className="col-lg-6">
-                  <div className="filter-controls">
-                    <div className="row g-3">
-                      <div className="col-6">
-                        <div className="form-group">
-                          <label className="form-label">Sort by</label>
-                          <select className="form-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-                            <option value="date">Latest First</option>
-                            <option value="score">Highest Score</option>
-                            <option value="title">Test Name</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div className="col-6">
-                        <div className="form-group">
-                          <label className="form-label">Filter</label>
-                          <select
-                            className="form-select"
-                            value={filterBy}
-                            onChange={(e) => setFilterBy(e.target.value)}
-                          >
-                            <option value="all">All Tests</option>
-                            <option value="excellent">Excellent (90%+)</option>
-                            <option value="good">Good (70-89%)</option>
-                            <option value="needs-improvement">Needs Improvement (&lt;70%)</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+      {/* Filters and Search */}
+      <div className="container">
+        <div className="filters-section">
+          <div className="row g-3">
+            <div className="col-md-4">
+              <div className="search-box">
+                <input
+                  type="text"
+                  placeholder="Search tests or sessions..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="form-control"
+                />
+                <div className="search-icon">🔍</div>
               </div>
+            </div>
+            <div className="col-md-4">
+              <select value={filterBy} onChange={(e) => setFilterBy(e.target.value)} className="form-select">
+                <option value="all">All Performance Levels</option>
+                <option value="excellent">Excellent (90%+)</option>
+                <option value="good">Good (70-89%)</option>
+                <option value="average">Average (50-69%)</option>
+                <option value="poor">Needs Improvement (&lt;50%)</option>
+              </select>
+            </div>
+            <div className="col-md-4">
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="form-select">
+                <option value="date">Sort by Date</option>
+                <option value="score">Sort by Score</option>
+                <option value="title">Sort by Title</option>
+              </select>
             </div>
           </div>
         </div>
 
-        {/* Results Section */}
-        <div className="row">
-          <div className="col-12">
-            {filteredAndSortedAttempts.length === 0 ? (
-              <div className="empty-state-card">
-                <div className="empty-content">
-                  <div className="empty-icon">📝</div>
-                  <h3>No Tests Found</h3>
-                  <p>
-                    {searchTerm || filterBy !== "all"
-                      ? "No tests match your current search or filter criteria."
-                      : "You haven't attempted any tests yet. Start practicing to see your results here!"}
-                  </p>
-                  {(searchTerm || filterBy !== "all") && (
-                    <button
-                      onClick={() => {
-                        setSearchTerm("")
-                        setFilterBy("all")
-                      }}
-                      className="btn btn-primary"
-                    >
-                      Clear Filters
-                    </button>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="tests-grid">
-                <div className="row g-4">
-                  {filteredAndSortedAttempts.map((attempt, index) => (
-                    <div key={attempt.id} className="col-lg-6 col-xl-4">
-                      <div className={`test-card ${getScoreColor(attempt.score || 0)}`}>
-                        <div className="card-header">
-                          <div className="test-info">
-                            <h5 className="test-title">{attempt.test_title || "Untitled Test"}</h5>
-                            <p className="session-name">
-                              <i className="fas fa-graduation-cap me-2"></i>
-                              {attempt.session_name || "Unknown session"}
-                            </p>
-                          </div>
-                          <div className="score-badge">
-                            <span className="score-icon">{getScoreIcon(attempt.score || 0)}</span>
-                            <span className="score-value">
-                              {typeof attempt.score === "number" ? `${attempt.score}%` : "N/A"}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="card-body">
-                          <div className="test-details">
-                            <div className="detail-item">
-                              <i className="fas fa-calendar-alt"></i>
-                              <span>
-                                {attempt.submitted_at
-                                  ? new Date(attempt.submitted_at).toLocaleDateString("en-US", {
-                                      year: "numeric",
-                                      month: "short",
-                                      day: "numeric",
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })
-                                  : "Date not available"}
-                              </span>
-                            </div>
-                            <div className="detail-item">
-                              <i className="fas fa-question-circle"></i>
-                              <span>{attempt.total_questions || "N/A"} questions</span>
-                            </div>
-                            <div className="detail-item">
-                              <i className="fas fa-check-circle"></i>
-                              <span>{attempt.correct_answers || "N/A"} correct</span>
-                            </div>
-                          </div>
-
-                          <div className="progress-container">
-                            <div className="progress">
-                              <div className="progress-bar" style={{ width: `${attempt.score || 0}%` }}></div>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="card-footer">
-                          <div className="row g-2">
-                            <div className="col-6">
-                              <button onClick={() => handleView(attempt.id)} className="btn btn-primary w-100">
-                                <i className="fas fa-eye me-2"></i>
-                                View
-                              </button>
-                            </div>
-                            <div className="col-6">
-                              <button
-                                onClick={() => handleDownloadPDF(attempt.id, attempt.test_title)}
-                                className="btn btn-success w-100"
-                              >
-                                <i className="fas fa-download me-2"></i>
-                                PDF
-                              </button>
-                            </div>
-                          </div>
-                        </div>
+        {/* Tests Grid */}
+        <div className="tests-grid">
+          {filteredAttempts.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">📝</div>
+              <h3>No Tests Found</h3>
+              <p>
+                {searchTerm || filterBy !== "all"
+                  ? "Try adjusting your search or filter criteria"
+                  : "You haven't attempted any tests yet"}
+              </p>
+            </div>
+          ) : (
+            <div className="row g-4">
+              {filteredAttempts.map((attempt, index) => (
+                <div key={attempt.id} className="col-lg-6 col-xl-4">
+                  <div
+                    className={`test-card ${getScoreColor(attempt.score || 0)}`}
+                    style={{ animationDelay: `${index * 0.1}s` }}
+                  >
+                    <div className="test-card-header">
+                      <div className="test-info">
+                        <h3 className="test-title">{attempt.test_title || "Untitled Test"}</h3>
+                        <p className="session-name">{attempt.session_name || "Unknown Session"}</p>
+                      </div>
+                      <div className="score-badge">
+                        <span className="score-icon">{getScoreIcon(attempt.score || 0)}</span>
+                        <span className="score-value">{attempt.score || 0}%</span>
                       </div>
                     </div>
-                  ))}
+
+                    <div className="test-details">
+                      <div className="detail-item">
+                        <span className="detail-label">Date:</span>
+                        <span className="detail-value">
+                          {attempt.submitted_at ? new Date(attempt.submitted_at).toLocaleDateString() : "N/A"}
+                        </span>
+                      </div>
+                      <div className="detail-item">
+                        <span className="detail-label">Questions:</span>
+                        <span className="detail-value">{attempt.total_questions || "N/A"}</span>
+                      </div>
+                      <div className="detail-item">
+                        <span className="detail-label">Correct:</span>
+                        <span className="detail-value">{attempt.correct_answers || "N/A"}</span>
+                      </div>
+                    </div>
+
+                    <div className="progress-section">
+                      <div className="progress-bar-container">
+                        <div className="progress-bar" style={{ width: `${attempt.score || 0}%` }}></div>
+                      </div>
+                    </div>
+
+                    <div className="test-actions">
+                      <button onClick={() => handleView(attempt.id)} className="btn btn-view">
+                        <span className="btn-icon">👁️</span>
+                        View Results
+                      </button>
+                      <button
+                        onClick={() => handleDownloadPDF(attempt.id, attempt.test_title)}
+                        className="btn btn-download"
+                      >
+                        <span className="btn-icon">📥</span>
+                        Download
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -28,6 +28,7 @@ from urllib.parse import urlparse
 from rest_framework import status, generics, permissions
 from rest_framework_simplejwt.tokens import RefreshToken
 from reportlab.pdfgen import canvas
+from rest_framework.generics import ListAPIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import authenticate
@@ -2221,3 +2222,28 @@ class UserStatsView(APIView):
             stats = {"detail": "User role not recognized."}
 
         return Response(stats)
+
+class AdminSessionListView(APIView):
+    permission_classes = [IsAuthenticated, IsCustomAdmin]
+
+    def get(self, request):
+        sessions = Session.objects.all().select_related("teacher").prefetch_related("tests")
+        serializer = AdminSessionSerializer(sessions, many=True)
+        return Response(serializer.data)
+    
+    
+class AdminUserListView(ListAPIView):
+    serializer_class = UserListSerializer
+    permission_classes = [IsAuthenticated, IsCustomAdmin]
+
+    def get_queryset(self):
+        role = self.request.query_params.get('role')
+        return User.objects.filter(role=role)
+    
+class AdminUserDeleteView(APIView):
+    permission_classes = [IsAuthenticated, IsCustomAdmin]
+
+    def delete(self, request, user_id):
+        user = get_object_or_404(User, id=user_id)
+        user.delete()
+        return Response({"detail": "User deleted successfully"}, status=status.HTTP_204_NO_CONTENT) 
