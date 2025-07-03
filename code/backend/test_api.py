@@ -2,7 +2,7 @@ import requests
 import json
 
 headers = {
-    "Authorization": "Bearer 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",
+    "Authorization": "Bearer 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",
     "Content-Type": "application/json",
     "HTTP-Referer": "http://localhost"
 }

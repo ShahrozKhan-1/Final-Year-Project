@@ -1,8 +1,7 @@
 import { useState } from "react";
 import axios from "axios";
-import { X } from "lucide-react";
 
-const CreateSession = ({ onClose, onSuccess }) => {  // Receive props
+const CreateSession = ({ onClose, onSuccess }) => {
   const [sessionName, setSessionName] = useState("");
   const [description, setDescription] = useState("");
   const [startTime, setStartTime] = useState("");
@@ -18,7 +17,7 @@ const CreateSession = ({ onClose, onSuccess }) => {  // Receive props
         "http://127.0.0.1:8000/sessions/create/",
         {
           session_name: sessionName,
-          description: description,
+          description,
           start_time: startTime,
           end_time: endTime,
         },
@@ -28,7 +27,7 @@ const CreateSession = ({ onClose, onSuccess }) => {  // Receive props
       );
       setMessage("✅ Session created successfully.");
       setTimeout(() => {
-        onSuccess();  // Use onSuccess instead of local state
+        onSuccess();
       }, 1500);
     } catch (error) {
       setMessage("❌ Error creating session.");
@@ -37,60 +36,86 @@ const CreateSession = ({ onClose, onSuccess }) => {  // Receive props
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-      <div className="relative bg-white rounded-xl shadow-lg p-6 w-full max-w-md">
-        {/* Close Button */}
-        <button
-          className="absolute top-3 right-3 text-gray-500 hover:text-red-600"
-          onClick={onClose} 
-        >
-          <X className="w-5 h-5" />
-        </button>
+    <div className="modal d-block" tabIndex="-1" style={{ backgroundColor: "rgba(0, 0, 0, 0.5)" }}>
+      <div className="modal-dialog modal-dialog-centered">
+        <div className="modal-content shadow-lg rounded-4 border-0">
 
-        <h2 className="text-xl font-bold mb-4 text-blue-700 text-center">
-          Create Session
-        </h2>
-
-        <form onSubmit={handleCreate} className="space-y-4">
-          <input
-            type="text"
-            placeholder="Session Name"
-            value={sessionName}
-            onChange={(e) => setSessionName(e.target.value)}
-            className="w-full border rounded px-3 py-2"
-            required
-          />
-          <textarea
-            placeholder="Description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="w-full border rounded px-3 py-2"
-          ></textarea>
-          <input
-            type="datetime-local"
-            value={startTime}
-            onChange={(e) => setStartTime(e.target.value)}
-            className="w-full border rounded px-3 py-2"
-            required
-          />
-          <input
-            type="datetime-local"
-            value={endTime}
-            onChange={(e) => setEndTime(e.target.value)}
-            className="w-full border rounded px-3 py-2"
-            required
-          />
-          <button
-            type="submit"
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded"
+          {/* Modal Header with gradient */}
+          <div
+            className="modal-header text-white"
+            style={{
+              background: "linear-gradient(135deg, #0ea5e9, #14b8a6)",
+              borderTopLeftRadius: "1rem",
+              borderTopRightRadius: "1rem",
+            }}
           >
-            Create Session
-          </button>
-        </form>
+            <h5 className="modal-title fw-bold">Create Session</h5>
+            <button type="button" className="btn-close btn-close-white" onClick={onClose}></button>
+          </div>
 
-        {message && (
-          <p className="mt-4 text-sm text-center text-gray-700">{message}</p>
-        )}
+          <form onSubmit={handleCreate}>
+            <div className="modal-body bg-light">
+              <div className="mb-3">
+                <label className="form-label fw-semibold">Session Name</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Enter session name"
+                  value={sessionName}
+                  onChange={(e) => setSessionName(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="mb-3">
+                <label className="form-label fw-semibold">Description</label>
+                <textarea
+                  className="form-control"
+                  placeholder="Describe the session"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </div>
+              <div className="mb-3">
+                <label className="form-label fw-semibold">Start Time</label>
+                <input
+                  type="datetime-local"
+                  className="form-control"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="mb-3">
+                <label className="form-label fw-semibold">End Time</label>
+                <input
+                  type="datetime-local"
+                  className="form-control"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  required
+                />
+              </div>
+
+              {message && (
+                <div className="alert alert-info text-center py-2">{message}</div>
+              )}
+            </div>
+
+            {/* Gradient Submit Button */}
+            <div className="modal-footer border-0">
+              <button
+                type="submit"
+                className="btn w-100 text-white fw-semibold"
+                style={{
+                  background: "linear-gradient(135deg, #0ea5e9, #14b8a6)",
+                }}
+              >
+                Create Session
+              </button>
+            </div>
+          </form>
+
+        </div>
       </div>
     </div>
   );

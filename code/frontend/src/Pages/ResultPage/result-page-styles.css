@@ -120,6 +120,7 @@
 .result-header::before {
   content: "";
   position: absolute;
+  pointer-events: none;
   top: 0;
   left: 0;
   right: 0;
@@ -269,7 +270,7 @@
 
 .stat-label {
   font-size: 0.875rem;
-  color: #64748b;
+  color: #64748b !important;
   font-weight: 500;
 }
 
