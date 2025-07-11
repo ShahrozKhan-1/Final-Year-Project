@@ -830,7 +830,7 @@
   color: var(--danger);
 }
 
-.capitalize {
+.ctalize {
   text-transform: capitalize;
 }
 

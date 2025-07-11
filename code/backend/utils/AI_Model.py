@@ -23,7 +23,7 @@ def evaluate_with_AI(prompt, model=DEFAULT_MODEL, temperature=0.7, timeout=10):
     """
     api_key = getattr(settings, 'MODEL_API_KEY', None)
     if not api_key:
-        logger.error("❌ API key not configured in Django settings.")
+        logger.error("API key not configured in Django settings.")
         return None
 
     headers = {
@@ -44,14 +44,14 @@ def evaluate_with_AI(prompt, model=DEFAULT_MODEL, temperature=0.7, timeout=10):
         response.raise_for_status()
 
         if not response.text.strip():
-            logger.error("❌ Empty response from AI API.")
+            logger.error("Empty response from AI API.")
             return None
 
         try:
             data = response.json()
             print(f"AI API response: {data}")  # Debugging line to see the full response
         except json.JSONDecodeError as e:
-            logger.error(f"🚫 JSON decode error: {e} — Response was: {repr(response.text)}")
+            logger.error(f"JSON decode error: {e} — Response was: {repr(response.text)}")
             return None
 
         content = (
@@ -64,17 +64,17 @@ def evaluate_with_AI(prompt, model=DEFAULT_MODEL, temperature=0.7, timeout=10):
         if content:
             return content
         else:
-            logger.warning("⚠️ No 'content' in AI response.")
+            logger.warning("No 'content' in AI response.")
             return None
 
 
     except requests.Timeout:
-        logger.warning("⏰ AI API request timed out.")
+        logger.warning("AI API request timed out.")
     except requests.HTTPError as http_err:
-        logger.error(f"🚨 HTTP error: {http_err.response.status_code} - {http_err.response.text}")
+        logger.error(f"HTTP error: {http_err.response.status_code} - {http_err.response.text}")
     except requests.RequestException as e:
-        logger.error(f"🚨 Request error: {e}")
+        logger.error(f"Request error: {e}")
     except json.JSONDecodeError:
-        logger.error("🚫 Failed to decode JSON from AI API.")
+        logger.error("Failed to decode JSON from AI API.")
 
     return None

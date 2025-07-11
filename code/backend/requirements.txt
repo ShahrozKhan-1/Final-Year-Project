@@ -16,3 +16,4 @@ xhtml2pdf
 youtube_transcript_api 
 nltk
 tiktoken
+psycopg2-binary

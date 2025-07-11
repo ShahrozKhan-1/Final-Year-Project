@@ -1,6 +1,7 @@
 from django.shortcuts import render
 from django.conf import settings
 from django.utils.decorators import method_decorator
+from datetime import datetime
 from urllib.parse import urlparse, parse_qs
 from .models import * 
 from .serializers import *
@@ -1708,117 +1709,220 @@ def download_attempt_pdf(request, attempt_id):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
-    y = height - 50
+    
+    # Margins and spacing
+    left_margin = 50
+    right_margin = 50
+    top_margin = 50
+    line_height = 14
+    section_spacing = 20
+    y = height - top_margin
 
-    def check_space(lines=1):
+    def check_space(required_space=line_height):
         nonlocal y
-        if y < (lines * 20):
+        if y < (required_space + top_margin):
             p.showPage()
-            y = height - 50
+            y = height - top_margin
+            return True
+        return False
 
-    # Header
-    p.setFont("Helvetica-Bold", 14)
-    p.drawString(50, y, f"Test Report: {attempt.test.title}")
-    y -= 25
+    # Header with styling
+    p.setFont("Helvetica-Bold", 16)
+    p.setFillColorRGB(0.2, 0.4, 0.6)  # Dark blue color
+    p.drawString(left_margin, y, f"Test Report: {attempt.test.title}")
+    y -= line_height * 1.5
 
+    # Student information section
     p.setFont("Helvetica", 12)
-    p.drawString(50, y, f"Student: {request.user.username}")
-    y -= 20
-    p.drawString(50, y, f"Score: {attempt.score} / {attempt.total_questions}")
-    y -= 20
-    p.drawString(50, y, f"Correct Answers: {attempt.correct_answers}")
-    y -= 20
-    p.drawString(50, y, f"Submitted At: {submitted_at}")
-    y -= 20
-
-    wrapped_feedback = textwrap.wrap(f"AI Feedback: {attempt.ai_feedback or 'Not available'}", width=100)
-    for line in wrapped_feedback:
-        p.drawString(50, y, line)
-        y -= 15
-
-    # Suggested Topics
-    if attempt.suggested_topics:
-        y -= 10
+    p.setFillColorRGB(0, 0, 0)  # Black color
+    
+    info_lines = [
+        f"Student: {request.user.get_full_name() or request.user.username}",
+        f"Score: {attempt.score} / {attempt.total_questions}",
+        f"Percentage: {round((attempt.score/attempt.total_questions)*100, 2)}%",
+        f"Correct Answers: {attempt.correct_answers}",
+        f"Submitted At: {submitted_at}"
+    ]
+    
+    for line in info_lines:
         check_space()
-        p.setFont("Helvetica-Bold", 12)
-        p.drawString(50, y, "Suggested Topics for Improvement:")
-        y -= 18
-        p.setFont("Helvetica", 11)
+        p.drawString(left_margin, y, line)
+        y -= line_height
 
+    # AI Feedback section
+    y -= section_spacing / 2
+    check_space(line_height * 2)
+    
+    p.setFont("Helvetica-Bold", 12)
+    p.drawString(left_margin, y, "AI Feedback:")
+    y -= line_height
+    
+    p.setFont("Helvetica", 11)
+    feedback_text = attempt.ai_feedback or 'No feedback available'
+    wrapped_feedback = textwrap.wrap(feedback_text, width=90)
+    for line in wrapped_feedback:
+        check_space()
+        p.drawString(left_margin + 10, y, line)
+        y -= line_height
+
+    # Suggested Topics section
+    if attempt.suggested_topics:
+        y -= section_spacing
+        check_space(line_height * 3)
+        
+        p.setFont("Helvetica-Bold", 12)
+        p.drawString(left_margin, y, "Suggested Topics for Improvement:")
+        y -= line_height * 1.2
+        
         try:
             topics = json.loads(attempt.suggested_topics)
             if not isinstance(topics, list):
                 topics = attempt.suggested_topics.split(",")
         except json.JSONDecodeError:
             topics = attempt.suggested_topics.split(",")
-
+        
+        p.setFont("Helvetica", 11)
         for topic in topics:
-            wrapped = textwrap.wrap(f"- {topic.strip()}", width=90)
+            topic = topic.strip()
+            if not topic:
+                continue
+                
+            wrapped = textwrap.wrap(f"• {topic}", width=90)
             for line in wrapped:
                 check_space()
-                p.drawString(60, y, line)
-                y -= 13
+                p.drawString(left_margin + 15, y, line)
+                y -= line_height
+            y -= 2  # Small gap between topics
 
-    y -= 20
-    check_space()
-    p.setFont("Helvetica-Bold", 12)
-    p.drawString(50, y, "Detailed Question Report:")
-    y -= 20
+    # Detailed Question Report section
+    y -= section_spacing
+    check_space(line_height * 3)
+    
+    p.setFont("Helvetica-Bold", 14)
+    p.setFillColorRGB(0.2, 0.4, 0.6)  # Dark blue color
+    p.drawString(left_margin, y, "Detailed Question Report")
+    y -= line_height * 1.5
 
     for idx, ans in enumerate(attempt.answers.all(), start=1):
         q = ans.question
-        p.setFont("Helvetica-Bold", 11)
-        question_text = f"Q{idx}: {q.content}"
-        for line in textwrap.wrap(question_text, width=100):
+        
+        # Question header
+        check_space(line_height * 4)
+        p.setFont("Helvetica-Bold", 12)
+        p.setFillColorRGB(0, 0, 0)  # Black color
+        question_header = f"Question {idx}"
+        p.drawString(left_margin, y, question_header)
+        y -= line_height
+        
+        # Draw a light gray background for the question
+        p.setFillColorRGB(0.95, 0.95, 0.95)  # Light gray
+        text_height = len(textwrap.wrap(q.content, width=90)) * line_height
+        p.rect(left_margin - 5, y - text_height - 5, width - left_margin - right_margin + 10, text_height + 10, fill=1, stroke=0)
+        p.setFillColorRGB(0, 0, 0)  # Black color
+        
+        # Question text
+        p.setFont("Helvetica", 11)
+        question_text = q.content
+        for line in textwrap.wrap(question_text, width=90):
             check_space()
-            p.drawString(50, y, line)
-            y -= 13
-
+            p.drawString(left_margin, y, line)
+            y -= line_height
+        
+        y -= 5  # Small gap after question
+        
         if q.question_type == 'MCQ':
+            # MCQ Options
             p.setFont("Helvetica", 10)
-            for opt in ['A', 'B', 'C', 'D']:
-                option_text = getattr(q, f'option_{opt.lower()}')
-                wrapped_opt = textwrap.wrap(f"{opt}. {option_text}", width=90)
+            options = [
+                f"A. {q.option_a}",
+                f"B. {q.option_b}",
+                f"C. {q.option_c}",
+                f"D. {q.option_d}"
+            ]
+            
+            for opt in options:
+                wrapped_opt = textwrap.wrap(opt, width=85)
                 for line in wrapped_opt:
                     check_space()
-                    p.drawString(60, y, line)
-                    y -= 12
-
-            check_space(lines=3)
-            p.drawString(60, y, f"Student Answer: {ans.answer_text}")
-            y -= 12
-            p.drawString(60, y, f"Correct Answer: {q.correct_option}")
-            y -= 12
-            p.drawString(60, y, f"Status: {'✅ Correct' if ans.is_correct else '❌ Incorrect'}")
-            y -= 12
-            p.drawString(60, y, f"Recommendation: {'Great job!' if ans.is_correct else 'Review related concept'}")
-            y -= 18
+                    p.drawString(left_margin + 10, y, line)
+                    y -= line_height
+                y -= 2  # Small gap between options
+            
+            # Answer details
+            check_space(line_height * 4)
+            p.setFont("Helvetica-Bold", 10)
+            p.drawString(left_margin + 10, y, "Your Answer:")
+            p.setFont("Helvetica", 10)
+            p.drawString(left_margin + 90, y, ans.answer_text)
+            y -= line_height
+            
+            p.setFont("Helvetica-Bold", 10)
+            p.drawString(left_margin + 10, y, "Correct Answer:")
+            p.setFont("Helvetica", 10)
+            p.drawString(left_margin + 90, y, q.correct_option)
+            y -= line_height
+            
+            p.setFont("Helvetica-Bold", 10)
+            p.drawString(left_margin + 10, y, "Status:")
+            p.setFont("Helvetica", 10)
+            status_text = "Correct" if ans.is_correct else "Incorrect"
+            p.drawString(left_margin + 90, y, status_text)
+            y -= line_height
+            
+            p.setFont("Helvetica-Bold", 10)
+            p.drawString(left_margin + 10, y, "Recommendation:")
+            p.setFont("Helvetica", 10)
+            rec_text = "Great job!" if ans.is_correct else "Review this concept"
+            p.drawString(left_margin + 90, y, rec_text)
+            y -= section_spacing / 2
 
         elif q.question_type == 'QNA':
+            # Q&A Answer details
+            check_space(line_height * 3)
+            p.setFont("Helvetica-Bold", 10)
+            p.drawString(left_margin + 10, y, "Your Answer:")
+            y -= line_height
+            
             p.setFont("Helvetica", 10)
-
-            student_answer_lines = textwrap.wrap(f"Student Answer: {ans.answer_text}", width=100)
-            for line in student_answer_lines:
+            student_answer = ans.answer_text or "No answer provided"
+            wrapped_answer = textwrap.wrap(student_answer, width=90)
+            for line in wrapped_answer:
                 check_space()
-                p.drawString(60, y, line)
-                y -= 12
-
+                p.drawString(left_margin + 15, y, line)
+                y -= line_height
+            
             if ans.ai_feedback:
-                expected_answer_lines = textwrap.wrap(f"Expected Answer: {ans.ai_feedback}", width=100)
-                for line in expected_answer_lines:
+                y -= 5
+                check_space(line_height * 2)
+                p.setFont("Helvetica-Bold", 10)
+                p.drawString(left_margin + 10, y, "Feedback:")
+                y -= line_height
+                
+                p.setFont("Helvetica", 10)
+                wrapped_feedback = textwrap.wrap(ans.ai_feedback, width=90)
+                for line in wrapped_feedback:
                     check_space()
-                    p.drawString(60, y, line)
-                    y -= 12
+                    p.drawString(left_margin + 15, y, line)
+                    y -= line_height
+            
+            y -= section_spacing / 2
+        
+        # Add a separator line between questions
+        check_space(line_height)
+        p.line(left_margin, y, width - right_margin, y)
+        y -= section_spacing
 
-            check_space()
-            p.drawString(60, y, f"Recommendation: {'Good explanation!' if ans.is_correct else 'Work on clarity and depth.'}")
-            y -= 18
-
-        check_space()
+    # Footer
+    p.setFont("Helvetica", 8)
+    p.setFillColorRGB(0.5, 0.5, 0.5)  # Gray color
+    p.drawString(left_margin, 30, f"Report generated on {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    p.drawRightString(width - right_margin, 30, "Page %d" % p.getPageNumber())
 
     p.save()
     buffer.seek(0)
-    return HttpResponse(buffer, content_type='application/pdf')
+    response = HttpResponse(buffer, content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="Test_Report_{attempt.test.title}_{request.user.username}.pdf"'
+    return response
 
 
 
@@ -2193,7 +2297,8 @@ class UserStatsView(APIView):
 
         if user.role == 'student':
             test_attempts = TestAttempt.objects.filter(student=user, is_submitted=True)
-            sessions = Session.objects.filter(students=user)
+            sessions = Session.objects.filter(enrolled_students=user)
+
 
             stats = {
                 "role": "student",

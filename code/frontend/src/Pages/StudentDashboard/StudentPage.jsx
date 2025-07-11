@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react"
-import { useNavigate } from "react-router-dom"
-import { useUserRole } from "../../auth"
-import { motion } from "framer-motion"
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { useUserRole } from "../../auth";
+import { motion } from "framer-motion";
 import {
   ArrowRight,
   BookOpen,
@@ -14,79 +14,82 @@ import {
   FileText,
   Settings,
   LogOut,
-} from "lucide-react"
-import "bootstrap/dist/css/bootstrap.min.css"
-import "./dashboard-styles.css"
+} from "lucide-react";
+import "bootstrap/dist/css/bootstrap.min.css";
+import "./dashboard-styles.css";
 // import "../../global.css"
 
-import NotificationCenter from "../../Components/Notification"
+import NotificationCenter from "../../Components/Notification";
 
 export default function StudentDashboard() {
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [sessions, setSessions] = useState([])
-  const [testsBySession, setTestsBySession] = useState({})
-  const [userName, setUserName] = useState("Student")
-  const navigate = useNavigate()
-  const { role, loading: roleLoading } = useUserRole()
-  const token = localStorage.getItem("access_token")
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [sessions, setSessions] = useState([]);
+  const [testsBySession, setTestsBySession] = useState({});
+  const [userName, setUserName] = useState("Student");
+  const navigate = useNavigate();
+  const { role, loading: roleLoading } = useUserRole();
+  const token = localStorage.getItem("access_token");
 
   const handleEnrollSessionClick = () => {
-    navigate("/student/enroll-session")
-  }
+    navigate("/student/enroll-session");
+  };
 
   const handleSessionClick = (sessionId) => {
-    navigate(`/student/session/${sessionId}`)
-  }
+    navigate(`/student/session/${sessionId}`);
+  };
 
   const handleAttemptTestClick = (testId) => {
-    navigate(`/student/test/${testId}/attempt`)
-  }
+    navigate(`/student/test/${testId}/attempt`);
+  };
 
   useEffect(() => {
     if (!token) {
-      navigate("/login")
-      return
+      navigate("/login");
+      return;
     }
 
-    if (roleLoading) return
+    if (roleLoading) return;
 
     if (role !== "student") {
-      navigate("/login")
-      return
+      navigate("/login");
+      return;
     }
 
     const fetchEnrolledSessions = async () => {
       try {
-        const response = await fetch("http://127.0.0.1:8000/sessions/enrolled/", {
-          headers: { Authorization: `Bearer ${token}` },
-        })
+        const response = await fetch(
+          "http://127.0.0.1:8000/sessions/enrolled/",
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
 
-        if (!response.ok) throw new Error("Failed to fetch sessions")
+        if (!response.ok) throw new Error("Failed to fetch sessions");
 
-        const data = await response.json()
-        console.log("Enrolled Sessions Data:", data)
-        setSessions(data)
+        const data = await response.json();
+        console.log("Enrolled Sessions Data:", data);
+        setSessions(data);
 
         // Get user name if available
         if (data.length > 0 && data[0].student && data[0].student.username) {
-          setUserName(data[0].student.username)
+          setUserName(data[0].student.username);
         }
       } catch (err) {
-        console.error(err)
+        console.error(err);
         if (err.response?.status === 401) {
-          localStorage.removeItem("access_token")
-          navigate("/login")
+          localStorage.removeItem("access_token");
+          navigate("/login");
         } else {
-          setError("Failed to load sessions")
+          setError("Failed to load sessions");
         }
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
+    };
 
-    fetchEnrolledSessions()
-  }, [role, roleLoading, navigate, token])
+    fetchEnrolledSessions();
+  }, [role, roleLoading, navigate, token]);
 
   if (roleLoading || loading) {
     return (
@@ -98,7 +101,7 @@ export default function StudentDashboard() {
           <div className="fs-4 fw-semibold text-dark">Loading Dashboard...</div>
         </div>
       </div>
-    )
+    );
   }
 
   if (error) {
@@ -108,20 +111,28 @@ export default function StudentDashboard() {
           {error}
         </div>
       </div>
-    )
+    );
   }
 
   // Get current date
-  const today = new Date()
-  const options = { weekday: "long", year: "numeric", month: "long", day: "numeric" }
-  const formattedDate = today.toLocaleDateString("en-US", options)
+  const today = new Date();
+  const options = {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  };
+  const formattedDate = today.toLocaleDateString("en-US", options);
 
   return (
     <div className="dashboard-wrapper min-vh-100">
       {/* Floating Background Elements */}
       <div className="floating-elements">
         {[...Array(6)].map((_, i) => (
-          <div key={i} className={`floating-element floating-element-${i + 1}`} />
+          <div
+            key={i}
+            className={`floating-element floating-element-${i + 1}`}
+          />
         ))}
       </div>
       <div className="container-fluid">
@@ -138,13 +149,12 @@ export default function StudentDashboard() {
 
               <div className="d-flex align-items-center gap-3">
                 <NotificationCenter userRole="student" />
-                <div className="nav-item d-flex align-items-center gap-2">
-                </div>
+                <div className="nav-item d-flex align-items-center gap-2"></div>
                 <button
                   onClick={() => {
-                    localStorage.removeItem("access_token")
-                    localStorage.removeItem("refresh_token")
-                    navigate("/login")
+                    localStorage.removeItem("access_token");
+                    localStorage.removeItem("refresh_token");
+                    navigate("/login");
                   }}
                   className="btn btn-outline-danger btn-sm d-flex align-items-center gap-2"
                 >
@@ -167,7 +177,8 @@ export default function StudentDashboard() {
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.5 }}
                     >
-                      Welcome back, <span className="text-primary">{userName}</span>
+                      Welcome back,{" "}
+                      <span className="text-primary">{userName}</span>
                     </motion.h1>
                     <motion.p
                       className="text-muted"
@@ -227,7 +238,9 @@ export default function StudentDashboard() {
                     </div>
                     <div className="stat-content">
                       <p className="stat-title">Upcoming Tests</p>
-                      <h3 className="stat-value">{Object.values(testsBySession).flat().length}</h3>
+                      <h3 className="stat-value">
+                        {Object.values(testsBySession).flat().length}
+                      </h3>
                     </div>
                   </motion.div>
                 </div>
@@ -244,7 +257,11 @@ export default function StudentDashboard() {
                     </div>
                     <div className="stat-content">
                       <p className="stat-title">Average Score</p>
-                      <h3 className="stat-value">85%</h3>
+                      <h3 className="stat-value">
+                        {sessions[0]?.average_score !== undefined
+                          ? `${sessions[0].average_score}%`
+                          : "N/A"}
+                      </h3>
                     </div>
                   </motion.div>
                 </div>
@@ -268,13 +285,16 @@ export default function StudentDashboard() {
                       >
                         <Rocket className="empty-icon" size={48} />
                         <h3 className="empty-title">No Sessions Yet</h3>
-                        <p className="empty-description">Ready for liftoff? You're not enrolled in any sessions yet.</p>
+                        <p className="empty-description">
+                          Ready for liftoff? You're not enrolled in any sessions
+                          yet.
+                        </p>
                         <button
                           onClick={handleEnrollSessionClick}
                           className="btn btn-primary mt-3 d-flex align-items-center gap-2 mx-auto"
                         >
                           <BookOpen size={18} />
-                          Enroll Now
+                          not Enroll Now
                         </button>
                       </motion.div>
                     </div>
@@ -287,29 +307,46 @@ export default function StudentDashboard() {
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.1 * index }}
                       >
-                        <div className="session-card" onClick={() => handleSessionClick(session.id)}>
+                        <div
+                          className="session-card"
+                          onClick={() => handleSessionClick(session.id)}
+                        >
                           <div className="session-card-header">
                             <div className="session-icon">
                               <BookOpen size={20} />
                             </div>
-                            <div className="session-status">
-                              <span className="status-dot"></span>
-                              <span className="status-text">Active</span>
-                            </div>
                           </div>
 
-                          <h3 className="session-title">{session.session_name}</h3>
+                          <h3 className="session-title">
+                            {session.session_name}
+                          </h3>
 
-                          <p className="session-description">{session.description || "No description provided."}</p>
+                          <p className="session-description">
+                            {session.description || "No description provided."}
+                          </p>
 
                           <div className="session-meta">
                             <div className="session-meta-item">
                               <Clock size={16} />
-                              <span>Duration: {session.duration_minutes || "N/A"} mins</span>
+                              <span>
+                                Ends at:{" "}
+                                {session.end_time
+                                  ? new Date(session.end_time).toLocaleString(
+                                      "en-US",
+                                      {
+                                        dateStyle: "medium",
+                                        timeStyle: "short",
+                                      }
+                                    )
+                                  : "N/A"}
+                              </span>
                             </div>
+
                             <div className="session-meta-item">
                               <FileText size={16} />
-                              <span>Tests: {testsBySession[session.id]?.length || 0}</span>
+                              <span>
+                                Tests: {testsBySession[session.id]?.length || 0}
+                              </span>
                             </div>
                           </div>
 
@@ -318,7 +355,10 @@ export default function StudentDashboard() {
                               <User size={16} />
                               <span>{session.teacher?.username || "TBA"}</span>
                             </div>
-                            <motion.div className="session-arrow" whileHover={{ x: 3 }}>
+                            <motion.div
+                              className="session-arrow"
+                              whileHover={{ x: 3 }}
+                            >
                               <ArrowRight size={16} />
                             </motion.div>
                           </div>
@@ -344,8 +384,8 @@ export default function StudentDashboard() {
                       Practice Mode
                     </h2>
                     <p className="practice-description">
-                      Practice by uploading a document or topic and receive AI-generated questions to prepare yourself
-                      better.
+                      Practice by uploading a document or topic and receive
+                      AI-generated questions to prepare yourself better.
                     </p>
                     <button
                       onClick={() => navigate("/student/practice")}
@@ -367,5 +407,5 @@ export default function StudentDashboard() {
         </div>
       </div>
     </div>
-  )
+  );
 }
