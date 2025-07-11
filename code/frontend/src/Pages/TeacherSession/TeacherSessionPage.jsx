@@ -27,7 +27,7 @@ import {
   Phone,
 } from "lucide-react"
 import "bootstrap/dist/css/bootstrap.min.css"
-import "./teacher-session-styles.css"
+import "./Teacher-Session-Styles.css"
 // import "../../global.css"
 
 
